@@ -1008,9 +1008,13 @@ body {
     grid-template-columns: repeat(2, 1fr)
   }
 
-  .sidebar-user,
-  .logout {
+  .sidebar-user {
     display: none
+  }
+
+  .logout {
+    display: block;
+    margin-top: 12px
   }
 
   .app-main {
@@ -1080,4 +1084,11 @@ body {
   .dashboard-grid {
     grid-template-columns: 1fr
   }
+}
+
+.side-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
 }
