@@ -1,0 +1,72 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">MONTHLY SHIFT</span>
+      <h1>{{ period.month|date:'Y年n月' }} シフト表</h1>
+      <p>状態：{{ period.get_status_display }} · 警告 {{ period.warning_count }}件</p>
+    </div>
+    <div class="actions">
+      {% if period.status != 'published' %}
+        <form method="post" action="{% url 'publish_shift' period.pk %}">{% csrf_token %}<button class="btn btn-primary">
+          <i class="bi bi-send">
+          </i> シフトを公開</button>
+        </form>
+      {% else %}
+        <span class="status published large">公開済み</span>
+      {% endif %}
+      <a class="btn btn-outline-danger" href="{% url 'shift_delete' period.pk %}">
+        <i class="bi bi-trash">
+        </i> 削除</a>
+    </div>
+  </header>
+  <section class="panel shift-board">
+    <div class="table-responsive">
+      <table class="table table-bordered monthly-table">
+        <thead>
+          <tr>
+            <th class="sticky-col">氏名</th>
+            {% for day in days %}
+              <th>{{ day }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td class="sticky-col">
+                <small>{{ row.staff.employee_number }}</small>
+                <strong>{{ row.staff.name }}</strong>
+              </td>
+              {% for item in row.cells %}
+                <td class="{% if item %}assigned{% else %}rest{% endif %}">
+                  {% if item %}
+                    {{ item.work_type.name }}
+                  {% else %}
+                    休
+                  {% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if warnings %}
+    <section class="panel warnings">
+      <h2>
+        <i class="bi bi-exclamation-triangle">
+        </i> 生成時の警告</h2>
+      {% for warning in warnings %}
+        <div>
+          <strong>{{ warning.day|date:'n/j' }}</strong>
+          <span>{{ warning.message }}</span>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+{% endblock %}

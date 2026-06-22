@@ -1,0 +1,79 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">RULE TYPE MASTER</span>
+      <h1>条件種別管理</h1>
+      <p>企業独自の条件名を、再利用可能な判定方式へ関連付けます。</p>
+    </div>
+    <a class="btn btn-light" href="{% url 'constraint_manage' %}">
+      <i class="bi bi-arrow-left">
+      </i> 個別条件へ戻る</a>
+  </header>
+  <div class="content-grid">
+    <section class="panel">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>条件種別名</th>
+              <th>判定方式</th>
+              <th>初期強度</th>
+              <th>状態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>
+                  <strong>{{ item.name }}</strong>
+                  <small class="d-block text-muted">{{ item.description|default:'—' }}</small>
+                </td>
+                <td>{{ item.get_operator_display }}</td>
+                <td>{{ item.default_is_hard|yesno:'Hard,Soft' }}</td>
+                <td>{{ item.active|yesno:'有効,無効' }}</td>
+                <td class="actions">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'constraint_type_edit' item.pk %}">
+                    <i class="bi bi-pencil">
+                    </i>
+                  </a>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'constraint_type_delete' item.pk %}">
+                    <i class="bi bi-trash">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty">条件種別が未登録です。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <aside class="panel form-panel">
+      <h2>
+        {% if editing_item %}
+          条件種別を編集
+        {% else %}
+          条件種別を追加
+        {% endif %}
+      </h2>
+      <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
+        {% if editing_item %}
+          更新する
+        {% else %}
+          登録する
+        {% endif %}
+      </button>
+        {% if editing_item %}
+          <a class="btn btn-light w-100 mt-2" href="{% url 'constraint_type_manage' %}">キャンセル</a>
+        {% endif %}
+      </form>
+      <p class="hint mt-3">条件種別名は自由です。判定方式が同じでも、用途別に複数の種別を作成できます。</p>
+    </aside>
+  </div>
+{% endblock %}

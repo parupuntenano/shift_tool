@@ -1,0 +1,78 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">MASTER</span>
+      <h1>スタッフ管理</h1>
+      <p>社員番号、ログイン情報、有効状態を管理します。</p>
+    </div>
+  </header>
+  <div class="content-grid">
+    <section class="panel">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>社員番号</th>
+              <th>氏名</th>
+              <th>ログインID</th>
+              <th>状態</th>
+              <th>備考</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>{{ item.employee_number }}</td>
+                <td class="fw-bold">{{ item.name }}</td>
+                <td>{{ item.user.username|default:'未設定' }}</td>
+                <td>
+                  <span class="status {% if item.active %}published{% endif %}">
+                    {{ item.active|yesno:'有効,無効' }}
+                  </span>
+                </td>
+                <td>{{ item.note|default:'—' }}</td>
+                <td class="actions">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'staff_edit' item.pk %}">
+                    <i class="bi bi-pencil">
+                    </i>
+                  </a>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'staff_delete' item.pk %}">
+                    <i class="bi bi-trash">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="empty">スタッフが未登録です。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <aside class="panel form-panel">
+      <h2>
+        {% if editing_item %}
+          スタッフ編集
+        {% else %}
+          スタッフ登録
+        {% endif %}
+      </h2>
+      <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
+        {% if editing_item %}
+          更新する
+        {% else %}
+          登録する
+        {% endif %}
+      </button>
+        {% if editing_item %}
+          <a class="btn btn-light w-100 mt-2" href="{% url 'staff_manage' %}">キャンセル</a>
+        {% endif %}
+      </form>
+    </aside>
+  </div>
+{% endblock %}

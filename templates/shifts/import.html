@@ -1,0 +1,42 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">IMPORT</span>
+      <h1>スキル表取込</h1>
+      <p>既存のExcel・CSVスキルマップをそのまま活用できます。</p>
+    </div>
+  </header>
+  <div class="content-grid">
+    <section class="panel upload-panel">
+      <i class="bi bi-cloud-arrow-up">
+      </i>
+      <h2>ファイルを選択</h2>
+      <p>.xlsx / .xls / .csv に対応しています。</p>
+      <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">取込を開始</button>
+      </form>
+      <div class="format-guide">
+        <strong>必要な見出し</strong>
+        <code>社員番号, 氏名, 備考, [業務名1], [業務名2]...</code>
+        <small>業務列のセルには「◎」「○」「訓練中」など、登録済みまたは新しいスキル記号を入力します。</small>
+        <small>初回取込時は、ログインIDを社員番号、初期パスワードを「0000」として自動登録します。</small>
+      </div>
+    </section>
+    <aside class="panel">
+      <h2>最近の取込</h2>
+      {% for job in jobs %}
+        <div class="history-item">
+          <i class="bi bi-file-earmark-check">
+          </i>
+          <div>
+            <strong>{{ job.filename }}</strong>
+            <small>{{ job.created_at }} · {{ job.result }}</small>
+          </div>
+        </div>
+      {% empty %}
+        <p class="empty">取込履歴はありません。</p>
+      {% endfor %}
+    </aside>
+  </div>
+{% endblock %}

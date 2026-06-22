@@ -1,0 +1,75 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">SKILL LEVEL</span>
+      <h1>スキル区分管理</h1>
+      <p>記号、意味、配置優先度を企業ごとに設定します。</p>
+    </div>
+    <a class="btn btn-outline-primary" href="{% url 'skill_map' %}">スキル表へ</a>
+  </header>
+  <div class="content-grid">
+    <section class="panel">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>記号</th>
+              <th>意味</th>
+              <th>優先度</th>
+              <th>アサイン可</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>
+                  <span class="skill-symbol">{{ item.symbol }}</span>
+                </td>
+                <td>{{ item.meaning }}</td>
+                <td>{{ item.priority }}</td>
+                <td>{{ item.assignable|yesno:'可,不可' }}</td>
+                <td class="actions">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'skill_edit' item.pk %}">
+                    <i class="bi bi-pencil">
+                    </i>
+                  </a>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'skill_delete' item.pk %}">
+                    <i class="bi bi-trash">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty">スキル区分が未登録です。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <aside class="panel form-panel">
+      <h2>
+        {% if editing_item %}
+          スキル区分編集
+        {% else %}
+          スキル区分登録
+        {% endif %}
+      </h2>
+      <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
+        {% if editing_item %}
+          更新する
+        {% else %}
+          登録する
+        {% endif %}
+      </button>
+        {% if editing_item %}
+          <a class="btn btn-light w-100 mt-2" href="{% url 'skill_manage' %}">キャンセル</a>
+        {% endif %}
+      </form>
+    </aside>
+  </div>
+{% endblock %}

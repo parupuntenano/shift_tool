@@ -1,0 +1,65 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">SCHEDULE</span>
+      <h1>シフト作成・管理</h1>
+      <p>提出状況とスキル優先度から月間シフトを生成します。</p>
+    </div>
+  </header>
+  <div class="content-grid">
+    <section class="panel">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>対象月</th>
+              <th>状態</th>
+              <th>割当件数</th>
+              <th>警告</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in periods %}
+              <tr>
+                <td class="fw-bold">{{ item.month|date:'Y年n月' }}</td>
+                <td>
+                  <span class="status {{ item.status }}">{{ item.get_status_display }}</span>
+                </td>
+                <td>{{ item.assignment_count }}件</td>
+                <td>{{ item.warning_count }}件</td>
+                <td class="actions">
+                  <a class="btn btn-sm btn-light" href="{% url 'shift_detail' item.pk %}">開く</a>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'shift_delete' item.pk %}">
+                    <i class="bi bi-trash">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty">月間シフトはまだありません。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      <aside class="panel form-panel generate-panel">
+        <span class="metric-icon purple">
+          <i class="bi bi-magic">
+          </i>
+        </span>
+        <h2>シフト自動生成</h2>
+        <p>提出済みの勤務可能日、希望休、スキル、Hard Constraintを反映します。</p>
+        <form method="post" action="{% url 'generate_shift' %}">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
+          <i class="bi bi-magic">
+          </i> 自動生成する</button>
+        </form>
+        <small class="notice">
+          <i class="bi bi-info-circle">
+          </i> 同じ月を再生成すると現在の割当を置き換えます。</small>
+      </aside>
+    </div>
+{% endblock %}

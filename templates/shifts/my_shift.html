@@ -1,0 +1,40 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">MY SCHEDULE</span>
+      <h1>{{ month|date:'Y年n月' }} マイシフト</h1>
+      <p>公開済みの担当業務と休日を確認できます。</p>
+    </div>
+  </header>
+  {% if period %}
+    <div class="my-shift-grid">
+      {% for item in days %}
+        <article class="my-day {% if not item.assignment %}off{% endif %}">
+          <div>
+            <strong>{{ item.date|date:'j' }}</strong>
+            <small>{{ item.date|date:'D' }}</small>
+          </div>
+          {% if item.assignment %}
+            <span>{{ item.assignment.work_type.name }}</span>
+            {% if item.assignment.note %}
+              <small>{{ item.assignment.note }}</small>
+            {% endif %}
+
+          {% else %}
+            <span>休</span>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="panel empty-state">
+      <i class="bi bi-calendar2-x">
+      </i>
+      <h2>まだ公開されていません</h2>
+      <p>{{ month|date:'Y年n月' }}のシフトは管理者の公開後に表示されます。</p>
+    </div>
+  {% endif %}
+
+{% endblock %}

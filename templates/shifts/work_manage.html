@@ -1,0 +1,72 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">MASTER</span>
+      <h1>業務管理</h1>
+      <p>企業独自の業務を自由に登録できます。</p>
+    </div>
+  </header>
+  <div class="content-grid">
+    <section class="panel">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>表示順</th>
+              <th>業務名</th>
+              <th>必要人数/日</th>
+              <th>状態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>{{ item.display_order }}</td>
+                <td class="fw-bold">{{ item.name }}</td>
+                <td>{{ item.required_staff_per_day }}名</td>
+                <td>{{ item.active|yesno:'有効,無効' }}</td>
+                <td class="actions">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'work_edit' item.pk %}">
+                    <i class="bi bi-pencil">
+                    </i>
+                  </a>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'work_delete' item.pk %}">
+                    <i class="bi bi-trash">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty">業務が未登録です。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <aside class="panel form-panel">
+      <h2>
+        {% if editing_item %}
+          業務編集
+        {% else %}
+          業務登録
+        {% endif %}
+      </h2>
+      <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
+        {% if editing_item %}
+          更新する
+        {% else %}
+          登録する
+        {% endif %}
+      </button>
+        {% if editing_item %}
+          <a class="btn btn-light w-100 mt-2" href="{% url 'work_manage' %}">キャンセル</a>
+        {% endif %}
+      </form>
+    </aside>
+  </div>
+{% endblock %}

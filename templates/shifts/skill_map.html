@@ -1,0 +1,178 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+
+  <header class="page-header">
+    <div>
+      <span class="kicker">SKILL MAP</span>
+      <h1>スタッフスキル</h1>
+      <p>業務ごとの対応レベルと配置優先度を管理します。</p>
+    </div>
+    <div>
+      <a class="btn btn-outline-primary" href="{% url 'skill_manage' %}">スキル区分</a>
+      <a class="btn btn-primary" href="{% url 'import_skill_map' %}">
+        <i class="bi bi-file-earmark-arrow-up">
+        </i> ファイル取込</a>
+    </div>
+  </header>
+  <div class="panel form-inline-panel mb-4">
+    <h2>スキルを設定・変更</h2>
+    <form method="post" class="row g-3 align-items-end">{% csrf_token %}<div class="col-md">{{ form.staff.label_tag }}{{ form.staff }}</div>
+      <div class="col-md">{{ form.work_type.label_tag }}{{ form.work_type }}</div>
+      <div class="col-md">{{ form.level.label_tag }}{{ form.level }}</div>
+      <div class="col-md-auto">
+        <button class="btn btn-primary">保存する</button>
+      </div>
+    </form>
+  </div>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>登録済みスキルの検索・削除</h2>
+        <p>条件で絞り込み、複数件をまとめて削除できます。</p>
+      </div>
+      <span class="result-count">{{ skill_entries|length }}件</span>
+    </div>
+    <form method="get" class="skill-search">
+      <div class="search-keyword">
+        <i class="bi bi-search">
+        </i>
+        <input type="search" name="q" value="{{ query }}" placeholder="社員番号・氏名・業務名・スキルで検索">
+      </div>
+      <select name="work" aria-label="業務で絞り込み">
+        <option value="">すべての業務</option>
+        {% for work in works %}
+          <option value="{{ work.pk }}"
+                  {% if work_filter == work.pk|stringformat:'s' %}
+                    selected
+                  {% endif %}
+          >{{ work.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="level" aria-label="スキル区分で絞り込み">
+        <option value="">すべてのスキル</option>
+        {% for level in skill_levels %}
+          <option value="{{ level.pk }}"
+                  {% if level_filter == level.pk|stringformat:'s' %}
+                    selected
+                  {% endif %}
+          >{{ level.symbol }} {{ level.meaning }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary">検索</button>
+      {% if query or work_filter or level_filter %}
+        <a class="btn btn-light" href="{% url 'skill_map' %}">クリア</a>
+      {% endif %}
+    </form>
+    <form method="post" action="{% url 'staff_skill_bulk_delete' %}" id="bulk-delete-form">{% csrf_token %}<div class="bulk-toolbar">
+      <label>
+        <input type="checkbox" id="select-all-skills"> すべて選択</label>
+      <span id="selected-count">0件選択</span>
+      <button class="btn btn-sm btn-outline-danger" id="bulk-delete-button" disabled>
+        <i class="bi bi-trash">
+        </i> 選択した項目を削除</button>
+    </div>
+      <div class="table-responsive skill-results">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th class="check-column">
+              </th>
+              <th>社員番号</th>
+              <th>スタッフ</th>
+              <th>業務</th>
+              <th>スキル</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in skill_entries %}
+              <tr>
+                <td>
+                  <input class="skill-checkbox" type="checkbox" name="skill_ids" value="{{ item.pk }}" aria-label="{{ item.staff.name }} {{ item.work_type.name }}を選択">
+                </td>
+                <td>{{ item.staff.employee_number }}</td>
+                <td class="fw-bold">{{ item.staff.name }}</td>
+                <td>{{ item.work_type.name }}</td>
+                <td>
+                  <span class="skill-symbol">{{ item.level.symbol }}</span> {{ item.level.meaning }}</td>
+                <td>
+                  <a class="btn btn-sm btn-outline-danger" href="{% url 'staff_skill_delete' item.pk %}">
+                    <i class="bi bi-trash">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="empty">条件に一致するスキル設定はありません。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  </section>
+  <details class="panel skill-map-details mt-4">
+    <summary>
+      <span>
+        <i class="bi bi-grid-3x3-gap">
+        </i> スキルマップ全体を表示</span>
+      <small>スタッフ×業務の一覧</small>
+    </summary>
+    <div class="table-responsive mt-3">
+      <table class="table skill-table align-middle">
+        <thead>
+          <tr>
+            <th class="sticky-col">スタッフ</th>
+            {% for work in works %}
+              <th>{{ work.name }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in staff_rows %}
+            <tr>
+              <td class="sticky-col">
+                <small>{{ row.staff.employee_number }}</small>
+                <strong>{{ row.staff.name }}</strong>
+              </td>
+              {% for level in row.cells %}
+                <td>
+                  {% if level %}
+                    <span class="skill-symbol" title="{{ level.meaning }}">{{ level.symbol }}</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="99" class="empty">スタッフが未登録です。</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  <script>
+    (() => {
+      const all = document.getElementById('select-all-skills');
+      const boxes = [...document.querySelectorAll('.skill-checkbox')];
+      const count = document.getElementById('selected-count');
+      const button = document.getElementById('bulk-delete-button');
+      const update = () => {
+        const selected = boxes.filter(box => box.checked).length;
+        count.textContent = `${selected}件選択`;
+        button.disabled = selected === 0;
+        all.checked = boxes.length > 0 && selected === boxes.length;
+        all.indeterminate = selected > 0 && selected < boxes.length;
+      };
+      all.addEventListener('change', () => { boxes.forEach(box => box.checked = all.checked); update(); });
+      boxes.forEach(box => box.addEventListener('change', update));
+      update();
+    })();
+  </script>
+
+{% endblock %}

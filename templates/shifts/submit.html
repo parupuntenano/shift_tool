@@ -1,0 +1,50 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">AVAILABILITY</span>
+      <h1>{{ month|date:'Y年n月' }} シフト提出</h1>
+      <p>休み希望を選択してください。</p>
+    </div>
+    <span class="status {{ submission.status }} large">{{ submission.get_status_display }}</span>
+  </header>
+  <form method="post">{% csrf_token %}<input type="hidden" name="month" value="{{ month|date:'Y-m' }}">
+    <div class="availability-grid">
+      {% for item in days %}
+        <article class="day-card {% if item.date.weekday >= 5 %}weekend{% endif %}">
+          <div>
+            <strong>{{ item.number }}</strong>
+            <small>{{ item.date|date:'D' }}</small>
+          </div>
+          <select name="day_{{ item.number }}" class="form-select">
+            <option value="available"
+                    {% if item.state == 'available' %}
+                      selected
+                    {% endif %}
+            >勤務可能</option>
+            <option value="off"
+                    {% if item.state == 'off' %}
+                      selected
+                    {% endif %}
+            >休み希望</option>
+            <option value="unavailable"
+                    {% if item.state == 'unavailable' %}
+                      selected
+                    {% endif %}
+            >勤務不可</option>
+          </select>
+        </article>
+      {% endfor %}
+    </div>
+    <div class="submit-bar">
+      <div>
+        <strong>{{ month|date:'Y年n月' }}分</strong>
+        <small>選択内容は再提出で更新できます。</small>
+      </div>
+      <button class="btn btn-primary btn-lg">
+        <i class="bi bi-send-check">
+        </i> この内容で提出</button>
+    </div>
+  </form>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends 'shifts/base.html' %}
+
+{% block title %}
+  管理者ダッシュボード | ShiftFlow
+{% endblock %}
+
+{% block content %}
+
+  <header class="page-header">
+    <div>
+      <span class="kicker">{{ month|date:'Y年n月' }}</span>
+      <h1>管理者ダッシュボード</h1>
+      <p>シフト提出状況と生成結果をひと目で確認できます。</p>
+    </div>
+  </header>
+  <section class="metric-grid">
+    <div class="metric-card">
+      <span class="metric-icon purple">
+        <i class="bi bi-send-check">
+        </i>
+      </span>
+      <div>
+        <strong>{{ submission_rate }}%</strong>
+        <small>シフト提出率（{{ submitted_count }}/{{ staff_count }}名）</small>
+      </div>
+    </div>
+    <div class="metric-card">
+      <span class="metric-icon orange">
+        <i class="bi bi-person-x">
+        </i>
+      </span>
+      <div>
+        <strong>{{ missing_count }}</strong>
+        <small>未提出人数</small>
+      </div>
+    </div>
+    <div class="metric-card">
+      <span class="metric-icon blue">
+        <i class="bi bi-magic">
+        </i>
+      </span>
+      <div>
+        <strong class="status-text">{{ shift_status }}</strong>
+        <small>シフト生成状況</small>
+      </div>
+    </div>
+    <div class="metric-card">
+      <span class="metric-icon red">
+        <i class="bi bi-exclamation-triangle">
+        </i>
+      </span>
+      <div>
+        <strong>{{ warning_count }}</strong>
+        <small>警告件数</small>
+      </div>
+    </div>
+  </section>
+  <section class="dashboard-grid">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>最近のシフト</h2>
+          <p>生成・公開した月間シフト</p>
+        </div>
+        <a class="btn btn-light" href="{% url 'shift_manage' %}">すべて見る</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>対象月</th>
+              <th>状態</th>
+              <th>割当</th>
+              <th>警告</th>
+              <th>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in recent_periods %}
+              <tr>
+                <td class="fw-bold">{{ item.month|date:'Y年n月' }}</td>
+                <td>
+                  <span class="status {{ item.status }}">{{ item.get_status_display }}</span>
+                </td>
+                <td>{{ item.assignment_count }}件</td>
+                <td>{{ item.warning_count }}件</td>
+                <td>
+                  <a href="{% url 'shift_detail' item.pk %}">
+                    <i class="bi bi-chevron-right">
+                    </i>
+                  </a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty">まだシフトは生成されていません。</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <aside class="panel quick">
+      <h2>クイックメニュー</h2>
+      <a class="quick-primary" href="{% url 'shift_manage' %}">
+        <i class="bi bi-calendar-plus">
+        </i>
+        <span>シフトを自動生成<small>提出データから月間シフトを作成</small>
+        </span>
+      </a>
+      <a href="{% url 'staff_manage' %}">
+        <i class="bi bi-person-plus">
+        </i>新規スタッフ登録</a>
+      <a href="{% url 'work_manage' %}">
+        <i class="bi bi-plus-circle">
+        </i>新規業務登録</a>
+      <a href="{% url 'skill_map' %}">
+        <i class="bi bi-stars">
+        </i>スタッフスキル編集</a>
+      <a href="{% url 'constraint_manage' %}">
+        <i class="bi bi-sliders">
+        </i>個別制約条件管理</a>
+    </aside>
+  </section>
+
+{% endblock %}

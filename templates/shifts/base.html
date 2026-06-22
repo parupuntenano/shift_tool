@@ -1,0 +1,108 @@
+{% load static %}
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>
+      {% block title %}
+        ShiftFlow
+      {% endblock %}
+    </title>
+    <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+    <link href="{% static 'shifts/app.css' %}?v=20260622-1" rel="stylesheet">
+  </head>
+  <body>
+
+    {% if user.is_authenticated and current_membership %}
+      <aside class="sidebar">
+        <a class="logo" href="{% url 'home' %}">
+          <span>
+            <i class="bi bi-calendar2-check">
+            </i>
+          </span>ShiftFlow</a>
+        <nav class="side-nav">
+
+          {% if current_membership.role == 'admin' %}
+
+            <a class="{% if request.resolver_match.url_name == 'manager_dashboard' %}active{% endif %}"
+               href="{% url 'manager_dashboard' %}">
+              <i class="bi bi-grid">
+              </i>ダッシュボード</a>
+            <a class="{% if 'shift' in request.resolver_match.url_name %}active{% endif %}"
+               href="{% url 'shift_manage' %}">
+              <i class="bi bi-calendar3">
+              </i>シフト作成・管理</a>
+            <a class="{% if request.resolver_match.url_name == 'staff_manage' %}active{% endif %}"
+               href="{% url 'staff_manage' %}">
+              <i class="bi bi-people">
+              </i>スタッフ管理</a>
+            <a class="{% if request.resolver_match.url_name == 'work_manage' %}active{% endif %}"
+               href="{% url 'work_manage' %}">
+              <i class="bi bi-clock">
+              </i>業務管理</a>
+            <a class="{% if request.resolver_match.url_name == 'skill_manage' or request.resolver_match.url_name == 'skill_map' %}active{% endif %}"
+               href="{% url 'skill_map' %}">
+              <i class="bi bi-stars">
+              </i>スキル管理</a>
+            <a class="{% if request.resolver_match.url_name == 'constraint_manage' %}active{% endif %}"
+               href="{% url 'constraint_manage' %}">
+              <i class="bi bi-sliders">
+              </i>個別制約条件</a>
+            <a class="{% if request.resolver_match.url_name == 'import_skill_map' %}active{% endif %}"
+               href="{% url 'import_skill_map' %}">
+              <i class="bi bi-file-earmark-arrow-up">
+              </i>Excel取込</a>
+
+          {% else %}
+
+            <a class="{% if request.resolver_match.url_name == 'submit_availability' %}active{% endif %}"
+               href="{% url 'submit_availability' %}">
+              <i class="bi bi-calendar-plus">
+              </i>シフト提出</a>
+            <a class="{% if request.resolver_match.url_name == 'my_shift' %}active{% endif %}"
+               href="{% url 'my_shift' %}">
+              <i class="bi bi-calendar-check">
+              </i>シフト表確認</a>
+            <a class="{% if request.resolver_match.url_name == 'staff_change_password' %}active{% endif %}"
+               href="{% url 'staff_change_password' %}">
+              <i class="bi bi-key">
+              </i>パスワード変更</a>
+            <a class="disabled" href="#">
+              <i class="bi bi-exclamation-circle">
+              </i>急な休み申請 <small>Phase 2</small>
+            </a>
+
+          {% endif %}
+        </nav>
+        <div class="sidebar-user">
+          <span class="avatar">{{ user.username|slice:':1'|upper }}</span>
+          <div>
+            <strong>{{ user.get_full_name|default:user.username }}</strong>
+            <small>{{ current_company.name }} · {{ current_membership.get_role_display }}</small>
+          </div>
+        </div>
+        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="logout">
+          <i class="bi bi-box-arrow-right">
+          </i> ログアウト</button>
+        </form>
+      </aside>
+    {% endif %}
+
+    <main class="{% if user.is_authenticated and current_membership %}app-main{% else %}auth-main{% endif %}">
+
+      {% for message in messages %}
+        <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+
+
+      {% block content %}
+
+      {% endblock %}
+    </main>
+  </body>
+</html>
