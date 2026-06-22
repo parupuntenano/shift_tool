@@ -165,7 +165,7 @@ body {
 }
 
 .page-header h1 {
-  font-size: 32px;
+  font-size: 50px;
   font-weight: 850;
   letter-spacing: -.03em;
   margin: 4px 0 7px
@@ -208,7 +208,7 @@ body {
   border-radius: 13px;
   display: grid;
   place-items: center;
-  font-size: 24px
+  font-size: 30px
 }
 
 .metric-icon.purple {
@@ -232,13 +232,13 @@ body {
 }
 
 .metric-card strong {
-  font-size: 29px;
+  font-size: 60px;
   line-height: 1;
   display: block
 }
 
 .metric-card strong.status-text {
-  font-size: 20px
+  font-size: 40px
 }
 
 .metric-card small {
@@ -262,7 +262,7 @@ body {
 }
 
 .panel h2 {
-  font-size: 20px;
+  font-size: 40px;
   font-weight: 800
 }
 
@@ -279,7 +279,7 @@ body {
 
 .panel-head p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 25px;
   margin: 0
 }
 
@@ -319,7 +319,7 @@ body {
 }
 
 .quick-primary i {
-  font-size: 20px
+  font-size: 30px
 }
 
 .quick-primary span,
@@ -340,7 +340,7 @@ body {
 
 .table th {
   color: #8992a4;
-  font-size: 11px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: .05em;
   font-weight: 800;
@@ -364,7 +364,7 @@ body {
   background: #f0f1f5;
   color: #697286;
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 800
 }
 
@@ -413,7 +413,7 @@ body {
 .form-panel label,
 .form-inline-panel label {
   font-weight: 700;
-  font-size: 12px;
+  font-size: 30px;
   margin-bottom: 6px
 }
 
@@ -441,7 +441,7 @@ body {
 .helptext {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 18px;
   margin-top: 4px
 }
 
@@ -506,7 +506,7 @@ body {
 }
 
 .upload-panel>i {
-  font-size: 48px;
+  font-size: 70px;
   color: var(--primary)
 }
 
@@ -649,7 +649,7 @@ body {
 }
 
 .day-card strong {
-  font-size: 22px
+  font-size: 50px
 }
 
 .day-card small {
@@ -657,7 +657,7 @@ body {
 }
 
 .day-card select {
-  font-size: 12px
+  font-size: 17px
 }
 
 .submit-bar {
