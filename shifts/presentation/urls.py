@@ -3,7 +3,11 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path("login/", LoginView.as_view(template_name="registration/login.html"), name="login"),
+    path(
+        "login/",
+        LoginView.as_view(template_name="registration/login.html"),
+        name="login",
+    ),
     path("logout/", LogoutView.as_view(), name="logout"),
     path("", views.home, name="home"),
     path("manager/dashboard/", views.manager_dashboard, name="manager_dashboard"),
@@ -17,14 +21,42 @@ urlpatterns = [
     path("manager/skills/<int:pk>/edit/", views.skill_edit, name="skill_edit"),
     path("manager/skills/<int:pk>/delete/", views.skill_delete, name="skill_delete"),
     path("manager/constraints/", views.constraint_manage, name="constraint_manage"),
-    path("manager/constraint-types/", views.constraint_type_manage, name="constraint_type_manage"),
-    path("manager/constraint-types/<int:pk>/edit/", views.constraint_type_edit, name="constraint_type_edit"),
-    path("manager/constraint-types/<int:pk>/delete/", views.constraint_type_delete, name="constraint_type_delete"),
-    path("manager/constraints/<int:pk>/edit/", views.constraint_edit, name="constraint_edit"),
-    path("manager/constraints/<int:pk>/delete/", views.constraint_delete, name="constraint_delete"),
+    path(
+        "manager/constraint-types/",
+        views.constraint_type_manage,
+        name="constraint_type_manage",
+    ),
+    path(
+        "manager/constraint-types/<int:pk>/edit/",
+        views.constraint_type_edit,
+        name="constraint_type_edit",
+    ),
+    path(
+        "manager/constraint-types/<int:pk>/delete/",
+        views.constraint_type_delete,
+        name="constraint_type_delete",
+    ),
+    path(
+        "manager/constraints/<int:pk>/edit/",
+        views.constraint_edit,
+        name="constraint_edit",
+    ),
+    path(
+        "manager/constraints/<int:pk>/delete/",
+        views.constraint_delete,
+        name="constraint_delete",
+    ),
     path("manager/skill-map/", views.skill_map, name="skill_map"),
-    path("manager/skill-map/<int:pk>/delete/", views.staff_skill_delete, name="staff_skill_delete"),
-    path("manager/skill-map/bulk-delete/", views.staff_skill_bulk_delete, name="staff_skill_bulk_delete"),
+    path(
+        "manager/skill-map/<int:pk>/delete/",
+        views.staff_skill_delete,
+        name="staff_skill_delete",
+    ),
+    path(
+        "manager/skill-map/bulk-delete/",
+        views.staff_skill_bulk_delete,
+        name="staff_skill_bulk_delete",
+    ),
     path("manager/import/", views.import_skill_map, name="import_skill_map"),
     path("manager/shifts/", views.shift_manage, name="shift_manage"),
     path("manager/shifts/generate/", views.generate_shift, name="generate_shift"),

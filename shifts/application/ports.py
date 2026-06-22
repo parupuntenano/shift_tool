@@ -1,7 +1,14 @@
 from datetime import date
 from typing import BinaryIO, Protocol
 
-from shifts.domain.entities import Availability, ConstraintRule, GenerationResult, SkillRating, StaffMember, Work
+from shifts.domain.entities import (
+    Availability,
+    ConstraintRule,
+    GenerationResult,
+    SkillRating,
+    StaffMember,
+    Work,
+)
 from shifts.domain.import_data import ImportedSkillMap
 
 
@@ -9,9 +16,13 @@ class ShiftRepository(Protocol):
     def staff_for_generation(self, company_id: int) -> list[StaffMember]: ...
     def works_for_generation(self, company_id: int) -> list[Work]: ...
     def skills_for_generation(self, company_id: int) -> list[SkillRating]: ...
-    def availability_for_generation(self, company_id: int, month: date) -> list[Availability]: ...
+    def availability_for_generation(
+        self, company_id: int, month: date
+    ) -> list[Availability]: ...
     def rules_for_generation(self, company_id: int) -> list[ConstraintRule]: ...
-    def save_generation(self, company_id: int, month: date, result: GenerationResult) -> int: ...
+    def save_generation(
+        self, company_id: int, month: date, result: GenerationResult
+    ) -> int: ...
 
 
 class SkillMapReader(Protocol):
@@ -19,4 +30,6 @@ class SkillMapReader(Protocol):
 
 
 class MasterRepository(Protocol):
-    def save_skill_map(self, company_id: int, data: ImportedSkillMap) -> dict[str, int]: ...
+    def save_skill_map(
+        self, company_id: int, data: ImportedSkillMap
+    ) -> dict[str, int]: ...

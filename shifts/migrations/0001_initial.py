@@ -16,222 +16,614 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Company',
+            name="Company",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=150, verbose_name='企業名')),
-                ('code', models.SlugField(unique=True, verbose_name='企業コード')),
-                ('active', models.BooleanField(default=True, verbose_name='有効')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=150, verbose_name="企業名")),
+                ("code", models.SlugField(unique=True, verbose_name="企業コード")),
+                ("active", models.BooleanField(default=True, verbose_name="有効")),
             ],
             options={
-                'verbose_name': '企業',
-                'verbose_name_plural': '企業',
+                "verbose_name": "企業",
+                "verbose_name_plural": "企業",
             },
         ),
         migrations.CreateModel(
-            name='ImportJob',
+            name="ImportJob",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('filename', models.CharField(max_length=255, verbose_name='ファイル名')),
-                ('result', models.JSONField(default=dict, verbose_name='取込結果')),
-                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='取込日時')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='import_jobs', to='shifts.company')),
-                ('uploaded_by', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "filename",
+                    models.CharField(max_length=255, verbose_name="ファイル名"),
+                ),
+                ("result", models.JSONField(default=dict, verbose_name="取込結果")),
+                (
+                    "created_at",
+                    models.DateTimeField(auto_now_add=True, verbose_name="取込日時"),
+                ),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="import_jobs",
+                        to="shifts.company",
+                    ),
+                ),
+                (
+                    "uploaded_by",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='ShiftPeriod',
+            name="ShiftPeriod",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('month', models.DateField(verbose_name='対象月')),
-                ('status', models.CharField(choices=[('not_generated', '未生成'), ('draft', '下書き'), ('published', '公開済み')], default='not_generated', max_length=20, verbose_name='状態')),
-                ('warning_count', models.PositiveIntegerField(default=0, verbose_name='警告件数')),
-                ('generated_at', models.DateTimeField(blank=True, null=True, verbose_name='生成日時')),
-                ('published_at', models.DateTimeField(blank=True, null=True, verbose_name='公開日時')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='shift_periods', to='shifts.company')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("month", models.DateField(verbose_name="対象月")),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("not_generated", "未生成"),
+                            ("draft", "下書き"),
+                            ("published", "公開済み"),
+                        ],
+                        default="not_generated",
+                        max_length=20,
+                        verbose_name="状態",
+                    ),
+                ),
+                (
+                    "warning_count",
+                    models.PositiveIntegerField(default=0, verbose_name="警告件数"),
+                ),
+                (
+                    "generated_at",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="生成日時"
+                    ),
+                ),
+                (
+                    "published_at",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="公開日時"
+                    ),
+                ),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="shift_periods",
+                        to="shifts.company",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': '月間シフト',
-                'verbose_name_plural': '月間シフト',
-                'ordering': ['-month'],
+                "verbose_name": "月間シフト",
+                "verbose_name_plural": "月間シフト",
+                "ordering": ["-month"],
             },
         ),
         migrations.CreateModel(
-            name='SkillLevel',
+            name="SkillLevel",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('symbol', models.CharField(max_length=20, verbose_name='記号')),
-                ('meaning', models.CharField(max_length=100, verbose_name='意味')),
-                ('priority', models.PositiveIntegerField(default=1, verbose_name='優先度')),
-                ('assignable', models.BooleanField(default=True, verbose_name='アサイン可')),
-                ('display_order', models.PositiveIntegerField(default=0, verbose_name='表示順')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='skill_levels', to='shifts.company')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("symbol", models.CharField(max_length=20, verbose_name="記号")),
+                ("meaning", models.CharField(max_length=100, verbose_name="意味")),
+                (
+                    "priority",
+                    models.PositiveIntegerField(default=1, verbose_name="優先度"),
+                ),
+                (
+                    "assignable",
+                    models.BooleanField(default=True, verbose_name="アサイン可"),
+                ),
+                (
+                    "display_order",
+                    models.PositiveIntegerField(default=0, verbose_name="表示順"),
+                ),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="skill_levels",
+                        to="shifts.company",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'スキル区分',
-                'verbose_name_plural': 'スキル区分',
-                'ordering': ['display_order', 'priority'],
+                "verbose_name": "スキル区分",
+                "verbose_name_plural": "スキル区分",
+                "ordering": ["display_order", "priority"],
             },
         ),
         migrations.CreateModel(
-            name='Staff',
+            name="Staff",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('employee_number', models.CharField(max_length=50, verbose_name='社員番号')),
-                ('name', models.CharField(max_length=100, verbose_name='氏名')),
-                ('note', models.TextField(blank=True, verbose_name='備考')),
-                ('active', models.BooleanField(default=True, verbose_name='有効')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='staff', to='shifts.company')),
-                ('user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='staff_profiles', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "employee_number",
+                    models.CharField(max_length=50, verbose_name="社員番号"),
+                ),
+                ("name", models.CharField(max_length=100, verbose_name="氏名")),
+                ("note", models.TextField(blank=True, verbose_name="備考")),
+                ("active", models.BooleanField(default=True, verbose_name="有効")),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="staff",
+                        to="shifts.company",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="staff_profiles",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'スタッフ',
-                'verbose_name_plural': 'スタッフ',
-                'ordering': ['employee_number'],
+                "verbose_name": "スタッフ",
+                "verbose_name_plural": "スタッフ",
+                "ordering": ["employee_number"],
             },
         ),
         migrations.CreateModel(
-            name='IndividualConstraint',
+            name="IndividualConstraint",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=100, verbose_name='条件名')),
-                ('kind', models.CharField(choices=[('max_consecutive', '最大連続勤務日数'), ('no_single_rest', '単休不可'), ('avoid_same_work', '同一業務連続回避'), ('incompatible_staff', '同時配置禁止'), ('custom', 'その他')], max_length=30, verbose_name='条件種別')),
-                ('is_hard', models.BooleanField(default=True, verbose_name='Hard Constraint')),
-                ('parameters', models.JSONField(blank=True, default=dict, verbose_name='パラメータ')),
-                ('active', models.BooleanField(default=True, verbose_name='有効')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='constraints', to='shifts.company')),
-                ('staff', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='constraints', to='shifts.staff')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=100, verbose_name="条件名")),
+                (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("max_consecutive", "最大連続勤務日数"),
+                            ("no_single_rest", "単休不可"),
+                            ("avoid_same_work", "同一業務連続回避"),
+                            ("incompatible_staff", "同時配置禁止"),
+                            ("custom", "その他"),
+                        ],
+                        max_length=30,
+                        verbose_name="条件種別",
+                    ),
+                ),
+                (
+                    "is_hard",
+                    models.BooleanField(default=True, verbose_name="Hard Constraint"),
+                ),
+                (
+                    "parameters",
+                    models.JSONField(
+                        blank=True, default=dict, verbose_name="パラメータ"
+                    ),
+                ),
+                ("active", models.BooleanField(default=True, verbose_name="有効")),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="constraints",
+                        to="shifts.company",
+                    ),
+                ),
+                (
+                    "staff",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="constraints",
+                        to="shifts.staff",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': '個別制約条件',
-                'verbose_name_plural': '個別制約条件',
-                'ordering': ['staff_id', 'id'],
+                "verbose_name": "個別制約条件",
+                "verbose_name_plural": "個別制約条件",
+                "ordering": ["staff_id", "id"],
             },
         ),
         migrations.CreateModel(
-            name='AvailabilitySubmission',
+            name="AvailabilitySubmission",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('month', models.DateField(help_text='月初日を保存', verbose_name='対象月')),
-                ('status', models.CharField(choices=[('draft', '下書き'), ('submitted', '提出済み')], default='draft', max_length=12, verbose_name='状態')),
-                ('submitted_at', models.DateTimeField(blank=True, null=True, verbose_name='提出日時')),
-                ('staff', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='submissions', to='shifts.staff')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "month",
+                    models.DateField(help_text="月初日を保存", verbose_name="対象月"),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[("draft", "下書き"), ("submitted", "提出済み")],
+                        default="draft",
+                        max_length=12,
+                        verbose_name="状態",
+                    ),
+                ),
+                (
+                    "submitted_at",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="提出日時"
+                    ),
+                ),
+                (
+                    "staff",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="submissions",
+                        to="shifts.staff",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'シフト提出',
-                'verbose_name_plural': 'シフト提出',
+                "verbose_name": "シフト提出",
+                "verbose_name_plural": "シフト提出",
             },
         ),
         migrations.CreateModel(
-            name='WorkType',
+            name="WorkType",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=100, verbose_name='業務名')),
-                ('display_order', models.PositiveIntegerField(default=0, verbose_name='表示順')),
-                ('required_staff_per_day', models.PositiveSmallIntegerField(default=1, validators=[django.core.validators.MinValueValidator(1)], verbose_name='1日の必要人数')),
-                ('active', models.BooleanField(default=True, verbose_name='有効')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='work_types', to='shifts.company')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=100, verbose_name="業務名")),
+                (
+                    "display_order",
+                    models.PositiveIntegerField(default=0, verbose_name="表示順"),
+                ),
+                (
+                    "required_staff_per_day",
+                    models.PositiveSmallIntegerField(
+                        default=1,
+                        validators=[django.core.validators.MinValueValidator(1)],
+                        verbose_name="1日の必要人数",
+                    ),
+                ),
+                ("active", models.BooleanField(default=True, verbose_name="有効")),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="work_types",
+                        to="shifts.company",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': '業務',
-                'verbose_name_plural': '業務',
-                'ordering': ['display_order', 'id'],
+                "verbose_name": "業務",
+                "verbose_name_plural": "業務",
+                "ordering": ["display_order", "id"],
             },
         ),
         migrations.CreateModel(
-            name='StaffSkill',
+            name="StaffSkill",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('level', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='staff_skills', to='shifts.skilllevel')),
-                ('staff', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='work_skills', to='shifts.staff')),
-                ('work_type', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='staff_skills', to='shifts.worktype')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "level",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="staff_skills",
+                        to="shifts.skilllevel",
+                    ),
+                ),
+                (
+                    "staff",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="work_skills",
+                        to="shifts.staff",
+                    ),
+                ),
+                (
+                    "work_type",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="staff_skills",
+                        to="shifts.worktype",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'スタッフスキル',
-                'verbose_name_plural': 'スタッフスキル',
+                "verbose_name": "スタッフスキル",
+                "verbose_name_plural": "スタッフスキル",
             },
         ),
         migrations.CreateModel(
-            name='ShiftAssignment',
+            name="ShiftAssignment",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('day', models.DateField(verbose_name='日付')),
-                ('note', models.CharField(blank=True, max_length=200, verbose_name='備考')),
-                ('manually_edited', models.BooleanField(default=False, verbose_name='手動修正')),
-                ('period', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='assignments', to='shifts.shiftperiod')),
-                ('staff', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='assignments', to='shifts.staff')),
-                ('work_type', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='assignments', to='shifts.worktype')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("day", models.DateField(verbose_name="日付")),
+                (
+                    "note",
+                    models.CharField(blank=True, max_length=200, verbose_name="備考"),
+                ),
+                (
+                    "manually_edited",
+                    models.BooleanField(default=False, verbose_name="手動修正"),
+                ),
+                (
+                    "period",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="assignments",
+                        to="shifts.shiftperiod",
+                    ),
+                ),
+                (
+                    "staff",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="assignments",
+                        to="shifts.staff",
+                    ),
+                ),
+                (
+                    "work_type",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="assignments",
+                        to="shifts.worktype",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['staff__employee_number', 'day'],
+                "ordering": ["staff__employee_number", "day"],
             },
         ),
         migrations.CreateModel(
-            name='GenerationWarning',
+            name="GenerationWarning",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('day', models.DateField(verbose_name='日付')),
-                ('message', models.CharField(max_length=250, verbose_name='警告内容')),
-                ('period', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='warnings', to='shifts.shiftperiod')),
-                ('work_type', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='shifts.worktype')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("day", models.DateField(verbose_name="日付")),
+                ("message", models.CharField(max_length=250, verbose_name="警告内容")),
+                (
+                    "period",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="warnings",
+                        to="shifts.shiftperiod",
+                    ),
+                ),
+                (
+                    "work_type",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to="shifts.worktype",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['day', 'id'],
+                "ordering": ["day", "id"],
             },
         ),
         migrations.CreateModel(
-            name='AvailabilityDay',
+            name="AvailabilityDay",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('day', models.DateField(verbose_name='日付')),
-                ('available', models.BooleanField(default=True, verbose_name='勤務可能')),
-                ('preferred_off', models.BooleanField(default=False, verbose_name='休み希望')),
-                ('note', models.CharField(blank=True, max_length=200, verbose_name='備考')),
-                ('submission', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='days', to='shifts.availabilitysubmission')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("day", models.DateField(verbose_name="日付")),
+                (
+                    "available",
+                    models.BooleanField(default=True, verbose_name="勤務可能"),
+                ),
+                (
+                    "preferred_off",
+                    models.BooleanField(default=False, verbose_name="休み希望"),
+                ),
+                (
+                    "note",
+                    models.CharField(blank=True, max_length=200, verbose_name="備考"),
+                ),
+                (
+                    "submission",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="days",
+                        to="shifts.availabilitysubmission",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['day'],
-                'constraints': [models.UniqueConstraint(fields=('submission', 'day'), name='unique_submission_day')],
+                "ordering": ["day"],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("submission", "day"), name="unique_submission_day"
+                    )
+                ],
             },
         ),
         migrations.CreateModel(
-            name='CompanyMembership',
+            name="CompanyMembership",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('role', models.CharField(choices=[('admin', '管理者'), ('staff', 'スタッフ')], max_length=10, verbose_name='権限')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='memberships', to='shifts.company')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='company_memberships', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "role",
+                    models.CharField(
+                        choices=[("admin", "管理者"), ("staff", "スタッフ")],
+                        max_length=10,
+                        verbose_name="権限",
+                    ),
+                ),
+                (
+                    "company",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="memberships",
+                        to="shifts.company",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="company_memberships",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'constraints': [models.UniqueConstraint(fields=('company', 'user'), name='unique_company_user')],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("company", "user"), name="unique_company_user"
+                    )
+                ],
             },
         ),
         migrations.AddConstraint(
-            model_name='shiftperiod',
-            constraint=models.UniqueConstraint(fields=('company', 'month'), name='unique_company_shift_month'),
+            model_name="shiftperiod",
+            constraint=models.UniqueConstraint(
+                fields=("company", "month"), name="unique_company_shift_month"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='skilllevel',
-            constraint=models.UniqueConstraint(fields=('company', 'symbol'), name='unique_company_skill_symbol'),
+            model_name="skilllevel",
+            constraint=models.UniqueConstraint(
+                fields=("company", "symbol"), name="unique_company_skill_symbol"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='staff',
-            constraint=models.UniqueConstraint(fields=('company', 'employee_number'), name='unique_company_employee'),
+            model_name="staff",
+            constraint=models.UniqueConstraint(
+                fields=("company", "employee_number"), name="unique_company_employee"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='availabilitysubmission',
-            constraint=models.UniqueConstraint(fields=('staff', 'month'), name='unique_staff_submission_month'),
+            model_name="availabilitysubmission",
+            constraint=models.UniqueConstraint(
+                fields=("staff", "month"), name="unique_staff_submission_month"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='worktype',
-            constraint=models.UniqueConstraint(fields=('company', 'name'), name='unique_company_work'),
+            model_name="worktype",
+            constraint=models.UniqueConstraint(
+                fields=("company", "name"), name="unique_company_work"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='staffskill',
-            constraint=models.UniqueConstraint(fields=('staff', 'work_type'), name='unique_staff_work_skill'),
+            model_name="staffskill",
+            constraint=models.UniqueConstraint(
+                fields=("staff", "work_type"), name="unique_staff_work_skill"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='shiftassignment',
-            constraint=models.UniqueConstraint(fields=('period', 'staff', 'day'), name='unique_period_staff_day'),
+            model_name="shiftassignment",
+            constraint=models.UniqueConstraint(
+                fields=("period", "staff", "day"), name="unique_period_staff_day"
+            ),
         ),
     ]

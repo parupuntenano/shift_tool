@@ -12,7 +12,8 @@ class DjangoMasterRepository:
         User = get_user_model()
         for row in data.rows:
             staff, _ = Staff.objects.update_or_create(
-                company_id=company_id, employee_number=row.employee_number,
+                company_id=company_id,
+                employee_number=row.employee_number,
                 defaults={"name": row.name, "note": row.note, "active": True},
             )
             if not staff.user_id:
@@ -32,16 +33,26 @@ class DjangoMasterRepository:
                 staff.save(update_fields=["user"])
                 account_count += 1
             CompanyMembership.objects.get_or_create(
-                company_id=company_id, user=staff.user,
+                company_id=company_id,
+                user=staff.user,
                 defaults={"role": CompanyMembership.Role.STAFF},
             )
             staff_count += 1
             for work_name, symbol in row.skills.items():
-                work, _ = WorkType.objects.get_or_create(company_id=company_id, name=work_name)
-                level, _ = SkillLevel.objects.get_or_create(
-                    company_id=company_id, symbol=symbol,
-                    defaults={"meaning": symbol, "priority": 99, "assignable": symbol not in {"×", "-"}},
+                work, _ = WorkType.objects.get_or_create(
+                    company_id=company_id, name=work_name
                 )
-                StaffSkill.objects.update_or_create(staff=staff, work_type=work, defaults={"level": level})
+                level, _ = SkillLevel.objects.get_or_create(
+                    company_id=company_id,
+                    symbol=symbol,
+                    defaults={
+                        "meaning": symbol,
+                        "priority": 99,
+                        "assignable": symbol not in {"×", "-"},
+                    },
+                )
+                StaffSkill.objects.update_or_create(
+                    staff=staff, work_type=work, defaults={"level": level}
+                )
                 skill_count += 1
         return {"staff": staff_count, "skills": skill_count, "accounts": account_count}

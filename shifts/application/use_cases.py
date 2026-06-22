@@ -13,7 +13,11 @@ class GenerateMonthlyShiftOutput:
 
 
 class GenerateMonthlyShift:
-    def __init__(self, repository: ShiftRepository, generator: MonthlyShiftGenerator | None = None):
+    def __init__(
+        self,
+        repository: ShiftRepository,
+        generator: MonthlyShiftGenerator | None = None,
+    ):
         self.repository = repository
         self.generator = generator or MonthlyShiftGenerator()
 
@@ -28,7 +32,9 @@ class GenerateMonthlyShift:
             self.repository.rules_for_generation(company_id),
         )
         period_id = self.repository.save_generation(company_id, month, result)
-        return GenerateMonthlyShiftOutput(period_id, len(result.assignments), len(result.warnings))
+        return GenerateMonthlyShiftOutput(
+            period_id, len(result.assignments), len(result.warnings)
+        )
 
 
 class ImportSkillMap:

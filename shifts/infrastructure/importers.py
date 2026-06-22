@@ -39,10 +39,13 @@ class SkillMapFileReader:
     def _read_xls(raw):
         try:
             import xlrd
+
             sheet = xlrd.open_workbook(file_contents=raw).sheet_by_index(0)
             return [sheet.row_values(index) for index in range(sheet.nrows)]
         except Exception as exc:
-            raise SkillMapReadError("旧形式Excelファイルを読み込めませんでした。") from exc
+            raise SkillMapReadError(
+                "旧形式Excelファイルを読み込めませんでした。"
+            ) from exc
 
     @staticmethod
     def _read_csv(raw):
@@ -63,16 +66,27 @@ class SkillMapFileReader:
             raise SkillMapReadError("見出しに「社員番号」と「氏名」が必要です。")
         employee_index, name_index = headers.index("社員番号"), headers.index("氏名")
         note_index = headers.index("備考") if "備考" in headers else None
-        work_columns = [(index, header) for index, header in enumerate(headers) if header and header not in {"社員番号", "氏名", "備考"}]
+        work_columns = [
+            (index, header)
+            for index, header in enumerate(headers)
+            if header and header not in {"社員番号", "氏名", "備考"}
+        ]
         result = []
         for raw_row in rows[1:]:
             row = list(raw_row) + [""] * max(0, len(headers) - len(raw_row))
-            employee_number, name = str(row[employee_index] or "").strip(), str(row[name_index] or "").strip()
+            employee_number, name = (
+                str(row[employee_index] or "").strip(),
+                str(row[name_index] or "").strip(),
+            )
             if not employee_number and not name:
                 continue
             if not employee_number or not name:
                 raise SkillMapReadError("社員番号または氏名が空の行があります。")
-            skills = {work: str(row[index] or "").strip() for index, work in work_columns if str(row[index] or "").strip()}
+            skills = {
+                work: str(row[index] or "").strip()
+                for index, work in work_columns
+                if str(row[index] or "").strip()
+            }
             note = str(row[note_index] or "").strip() if note_index is not None else ""
             result.append(ImportedStaffRow(employee_number, name, note, skills))
         return ImportedSkillMap(tuple(result))

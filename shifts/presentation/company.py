@@ -9,14 +9,20 @@ from shifts.infrastructure.models import CompanyMembership, Staff
 def current_membership(request):
     if not request.user.is_authenticated:
         return None
-    return request.user.company_memberships.select_related("company").filter(company__active=True).first()
+    return (
+        request.user.company_memberships.select_related("company")
+        .filter(company__active=True)
+        .first()
+    )
 
 
 def current_staff(request, membership=None):
     membership = membership or current_membership(request)
     if not membership:
         return None
-    return Staff.objects.filter(company=membership.company, user=request.user, active=True).first()
+    return Staff.objects.filter(
+        company=membership.company, user=request.user, active=True
+    ).first()
 
 
 def admin_required(view):
@@ -29,6 +35,7 @@ def admin_required(view):
         request.membership = membership
         request.company = membership.company
         return view(request, *args, **kwargs)
+
     return wrapped
 
 
@@ -44,4 +51,5 @@ def staff_required(view):
         request.company = membership.company
         request.staff = staff
         return view(request, *args, **kwargs)
+
     return wrapped

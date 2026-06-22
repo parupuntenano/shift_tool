@@ -4,31 +4,56 @@ from django.db import migrations, models
 
 
 def remove_excel_imported_constraints(apps, schema_editor):
-    IndividualConstraint = apps.get_model('shifts', 'IndividualConstraint')
-    IndividualConstraint.objects.filter(parameters__source='skill_map').delete()
+    IndividualConstraint = apps.get_model("shifts", "IndividualConstraint")
+    IndividualConstraint.objects.filter(parameters__source="skill_map").delete()
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('shifts', '0002_individualconstraint_numeric_value_and_more'),
+        ("shifts", "0002_individualconstraint_numeric_value_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='individualconstraint',
-            name='text_value',
-            field=models.CharField(blank=True, help_text='例: 2,1 または 2,1,3,1', max_length=100, verbose_name='パターン設定'),
+            model_name="individualconstraint",
+            name="text_value",
+            field=models.CharField(
+                blank=True,
+                help_text="例: 2,1 または 2,1,3,1",
+                max_length=100,
+                verbose_name="パターン設定",
+            ),
         ),
         migrations.AddField(
-            model_name='individualconstraint',
-            name='weekdays',
-            field=models.JSONField(blank=True, default=list, verbose_name='対象曜日'),
+            model_name="individualconstraint",
+            name="weekdays",
+            field=models.JSONField(blank=True, default=list, verbose_name="対象曜日"),
         ),
         migrations.AlterField(
-            model_name='constrainttype',
-            name='operator',
-            field=models.CharField(choices=[('max_consecutive', '最大連続勤務日数'), ('work_alternation', '指定した2業務を交互に配置'), ('incompatible_same_work', '指定スタッフ同士を同一業務へ同時配置しない'), ('avoid_same_work', '同一業務の連続を回避'), ('work_rest_pattern', '勤休パターンを繰り返す'), ('no_single_rest', '単休を禁止する'), ('avoid_specific_work', '特定業務の連続を回避'), ('forbid_specific_work', '特定業務への配置を禁止'), ('forbid_works_on_weekdays', '指定曜日の業務配置を禁止'), ('custom', '判定なし（備考・将来拡張用）')], max_length=40, verbose_name='判定方式'),
+            model_name="constrainttype",
+            name="operator",
+            field=models.CharField(
+                choices=[
+                    ("max_consecutive", "最大連続勤務日数"),
+                    ("work_alternation", "指定した2業務を交互に配置"),
+                    (
+                        "incompatible_same_work",
+                        "指定スタッフ同士を同一業務へ同時配置しない",
+                    ),
+                    ("avoid_same_work", "同一業務の連続を回避"),
+                    ("work_rest_pattern", "勤休パターンを繰り返す"),
+                    ("no_single_rest", "単休を禁止する"),
+                    ("avoid_specific_work", "特定業務の連続を回避"),
+                    ("forbid_specific_work", "特定業務への配置を禁止"),
+                    ("forbid_works_on_weekdays", "指定曜日の業務配置を禁止"),
+                    ("custom", "判定なし（備考・将来拡張用）"),
+                ],
+                max_length=40,
+                verbose_name="判定方式",
+            ),
         ),
-        migrations.RunPython(remove_excel_imported_constraints, migrations.RunPython.noop),
+        migrations.RunPython(
+            remove_excel_imported_constraints, migrations.RunPython.noop
+        ),
     ]
