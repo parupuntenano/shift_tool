@@ -1,15 +1,15 @@
 import calendar
-from datetime import date
 import json
+from datetime import date
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
-from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
-from django.db.models.deletion import ProtectedError
+from django.contrib.auth.forms import PasswordChangeForm
 from django.db.models import Count, Q
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -45,7 +45,7 @@ from .forms import (
 )
 
 
-def _month(value=None):
+def _month(value=None) -> date:
     if value:
         try:
             return date.fromisoformat(f"{value[:7]}-01")
@@ -55,17 +55,20 @@ def _month(value=None):
     return today.replace(day=1)
 
 
-def _add_months(month, offset):
+def _add_months(month: date, offset: int) -> date:
     year = month.year + (month.month - 1 + offset) // 12
     month_number = (month.month - 1 + offset) % 12 + 1
     return month.replace(year=year, month=month_number, day=1)
 
 
-def _next_month():
+def _next_month() -> date:
     return _add_months(timezone.localdate().replace(day=1), 1)
 
 
-def _holidays_for_month(month):
+def _koyomi_api_url(month: date) -> str:
+    # 祝日名は暦APIから取得する。
+    # 取得した祝日名は _calendar_days() の holiday に入り、
+    # submit.html / my_shift.html / shift_detail.html で表示される。
     day_count = calendar.monthrange(month.year, month.month)[1]
     params = {
         "mode": "d",
@@ -74,10 +77,13 @@ def _holidays_for_month(month):
         "targetmm": f"{month.month:02d}",
         "targetdd": "01",
     }
-    url = "https://koyomi.zingsystem.com/api/?" + urlencode(params)
+    return "https://koyomi.zingsystem.com/api/?" + urlencode(params)
 
+
+def _holidays_for_month(month: date) -> dict[date, str]:
+    # API通信に失敗してもシフト画面は表示したいので、失敗時は祝日なしで続行する。
     try:
-        with urlopen(url, timeout=5) as response:
+        with urlopen(_koyomi_api_url(month), timeout=5) as response:
             data = json.load(response)
     except Exception:
         return {}
@@ -90,7 +96,15 @@ def _holidays_for_month(month):
     return holidays
 
 
-def _calendar_days(month):
+def _calendar_days(month: date) -> list[dict]:
+    # 3つの画面で共通利用する「日付表示用データ」をここで作る。
+    #
+    # - submit.html: スタッフのシフト希望提出カード
+    # - my_shift.html: スタッフのシフト確認カード
+    # - shift_detail.html: 管理者の月間シフト表ヘッダー/セル
+    #
+    # is_non_workday / is_saturday はテンプレートで class 名になり、
+    # static/shifts/app.css の .non-workday / .saturday に干渉する。
     day_count = calendar.monthrange(month.year, month.month)[1]
     holidays = _holidays_for_month(month)
     days = []
@@ -236,23 +250,21 @@ def staff_edit(request, pk):
 def staff_delete(request, pk):
     item = get_object_or_404(Staff, pk=pk, company=request.company)
     user_id = item.user_id
+
+    def delete_staff_membership():
+        CompanyMembership.objects.filter(
+            company=request.company,
+            user_id=user_id,
+            role=CompanyMembership.Role.STAFF,
+        ).delete()
+
     return _delete_confirmation(
         request,
         item,
         f"スタッフ「{item.name}」",
         reverse("staff_manage"),
         "staff_manage",
-        (
-            (
-                lambda: CompanyMembership.objects.filter(
-                    company=request.company,
-                    user_id=user_id,
-                    role=CompanyMembership.Role.STAFF,
-                ).delete()
-            )
-            if user_id
-            else None
-        ),
+        delete_staff_membership if user_id else None,
     )
 
 
@@ -633,6 +645,9 @@ def generate_shift(request):
 
 
 def _period_rows(period):
+    # 管理者シフト表専用の行データ。
+    # days は表の横軸、rows はスタッフごとの縦軸。
+    # row.cells[*].day の class 情報が shift_detail.html 経由で CSS に渡る。
     days = _calendar_days(period.month)
     staff_list = Staff.objects.filter(company=period.company, active=True)
     assignment_map = {
@@ -663,6 +678,8 @@ def _period_rows(period):
 @login_required
 @admin_required
 def shift_detail(request, pk):
+    # 管理者の「シフト表」画面。
+    # templates/shifts/shift_detail.html に days / rows を渡す。
     period = get_object_or_404(ShiftPeriod, pk=pk, company=request.company)
     days, rows = _period_rows(period)
     return render(
@@ -705,6 +722,8 @@ def shift_delete(request, pk):
 @login_required
 @staff_required
 def submit_availability(request):
+    # スタッフの「シフト提出」画面。
+    # _calendar_days() の日付情報に、提出済み状態(state)を足して submit.html に渡す。
     requested_month = request.POST.get("month") or request.GET.get("month")
     month = _month(requested_month) if requested_month else _next_month()
     submission, _ = AvailabilitySubmission.objects.get_or_create(
@@ -736,15 +755,13 @@ def submit_availability(request):
         for item in submission.days.all()
     }
 
-    days = []
-
-    for day in _calendar_days(month):
-        days.append(
-            {
-                **day,
-                "state": saved.get(day["number"], "available"),
-            }
-        )
+    days = [
+        {
+            **day,
+            "state": saved.get(day["number"], "available"),
+        }
+        for day in _calendar_days(month)
+    ]
     return render(
         request,
         "shifts/submit.html",
@@ -759,6 +776,8 @@ def submit_availability(request):
 @login_required
 @staff_required
 def my_shift(request):
+    # スタッフの「シフト表確認」画面。
+    # _calendar_days() の日付情報に、公開済みの割当(assignment)を足して my_shift.html に渡す。
     requested_month = request.GET.get("month")
     today_month = timezone.localdate().replace(day=1)
     min_month = _add_months(today_month, -1)

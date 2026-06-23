@@ -1,8 +1,7 @@
-#管理者→シフト作成・管理
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
+  {# views.shift_manage がシフト期間一覧、generate_shift が下のフォーム送信先。 #}
   <header class="page-header">
     <div>
       <span class="kicker">SCHEDULE</span>
@@ -35,8 +34,7 @@
                 <td class="actions">
                   <a class="btn btn-sm btn-light" href="{% url 'shift_detail' item.pk %}">開く</a>
                   <a class="btn btn-sm btn-outline-danger" href="{% url 'shift_delete' item.pk %}">
-                    <i class="bi bi-trash">
-                    </i>
+                    <i class="bi bi-trash"></i>
                   </a>
                 </td>
               </tr>
@@ -50,18 +48,23 @@
       </section>
       <aside class="panel form-panel generate-panel">
         <span class="metric-icon purple">
-          <i class="bi bi-magic">
-          </i>
+          <i class="bi bi-magic"></i>
         </span>
         <h2>シフト自動生成</h2>
         <p>提出済みの勤務可能日、希望休、スキル、Hard Constraintを反映します。</p>
-        <form method="post" action="{% url 'generate_shift' %}">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
-          <i class="bi bi-magic">
-          </i> 自動生成する</button>
+        <form method="post" action="{% url 'generate_shift' %}">
+          {% csrf_token %}
+          {{ form.as_p }}
+          <button class="btn btn-primary w-100">
+            <i class="bi bi-magic"></i>
+            自動生成する
+          </button>
         </form>
         <small class="notice">
-          <i class="bi bi-info-circle">
-          </i> 同じ月を再生成すると現在の割当を置き換えます。</small>
+          <i class="bi bi-info-circle"></i>
+          同じ月を再生成すると現在の割当を置き換えます。
+        </small>
       </aside>
     </div>
 {% endblock %}
+

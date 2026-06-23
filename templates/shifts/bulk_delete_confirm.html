@@ -1,13 +1,10 @@
-#管理者→スキル管理→登録スキルの削除
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
   <div class="delete-wrap">
     <section class="panel delete-card bulk-confirm">
       <span class="delete-icon">
-        <i class="bi bi-trash3">
-        </i>
+        <i class="bi bi-trash3"></i>
       </span>
       <span class="kicker">BULK DELETE CONFIRMATION</span>
       <h1>{{ items|length }}件を削除しますか？</h1>
@@ -22,13 +19,16 @@
       </div>
       <div class="delete-actions">
         <a class="btn btn-light" href="{% url 'skill_map' %}">キャンセル</a>
-        <form method="post" action="{% url 'staff_skill_bulk_delete' %}">{% csrf_token %}<input type="hidden" name="confirmed" value="1">
+        <form method="post" action="{% url 'staff_skill_bulk_delete' %}">
+          {% csrf_token %}
+          <input type="hidden" name="confirmed" value="1">
           {% for id in selected_ids %}
             <input type="hidden" name="skill_ids" value="{{ id }}">
           {% endfor %}
           <button class="btn btn-danger">
-            <i class="bi bi-trash">
-            </i> {{ items|length }}件を削除</button>
+            <i class="bi bi-trash"></i>
+            {{ items|length }}件を削除
+          </button>
         </form>
       </div>
     </section>

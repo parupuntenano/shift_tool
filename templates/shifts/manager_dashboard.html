@@ -1,5 +1,3 @@
-#管理者→ダッシュボード
-
 {% extends 'shifts/base.html' %}
 
 {% block title %}
@@ -18,8 +16,7 @@
   <section class="metric-grid">
     <div class="metric-card">
       <span class="metric-icon purple">
-        <i class="bi bi-send-check">
-        </i>
+        <i class="bi bi-send-check"></i>
       </span>
       <div>
         <strong>{{ submission_rate }}%</strong>
@@ -28,8 +25,7 @@
     </div>
     <div class="metric-card">
       <span class="metric-icon orange">
-        <i class="bi bi-person-x">
-        </i>
+        <i class="bi bi-person-x"></i>
       </span>
       <div>
         <strong>{{ missing_count }}</strong>
@@ -38,8 +34,7 @@
     </div>
     <div class="metric-card">
       <span class="metric-icon blue">
-        <i class="bi bi-magic">
-        </i>
+        <i class="bi bi-magic"></i>
       </span>
       <div>
         <strong class="status-text">{{ shift_status }}</strong>
@@ -48,8 +43,7 @@
     </div>
     <div class="metric-card">
       <span class="metric-icon red">
-        <i class="bi bi-exclamation-triangle">
-        </i>
+        <i class="bi bi-exclamation-triangle"></i>
       </span>
       <div>
         <strong>{{ warning_count }}</strong>
@@ -89,8 +83,7 @@
                 <td>{{ item.warning_count }}件</td>
                 <td>
                   <a href="{% url 'shift_detail' item.pk %}">
-                    <i class="bi bi-chevron-right">
-                    </i>
+                    <i class="bi bi-chevron-right"></i>
                   </a>
                 </td>
               </tr>
@@ -106,24 +99,20 @@
     <aside class="panel quick">
       <h2>クイックメニュー</h2>
       <a class="quick-primary" href="{% url 'shift_manage' %}">
-        <i class="bi bi-calendar-plus">
-        </i>
+        <i class="bi bi-calendar-plus"></i>
         <span>シフトを自動生成<small>提出データから月間シフトを作成</small>
         </span>
       </a>
       <a href="{% url 'staff_manage' %}">
-        <i class="bi bi-person-plus">
-        </i>新規スタッフ登録</a>
+        <i class="bi bi-person-plus"></i>新規スタッフ登録</a>
       <a href="{% url 'work_manage' %}">
-        <i class="bi bi-plus-circle">
-        </i>新規業務登録</a>
+        <i class="bi bi-plus-circle"></i>新規業務登録</a>
       <a href="{% url 'skill_map' %}">
-        <i class="bi bi-stars">
-        </i>スタッフスキル編集</a>
+        <i class="bi bi-stars"></i>スタッフスキル編集</a>
       <a href="{% url 'constraint_manage' %}">
-        <i class="bi bi-sliders">
-        </i>個別制約条件管理</a>
+        <i class="bi bi-sliders"></i>個別制約条件管理</a>
     </aside>
   </section>
 
 {% endblock %}
+

@@ -1,23 +1,24 @@
-#管理者→スタッフ管理→スタッフデータ削除
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
   <div class="delete-wrap">
     <section class="panel delete-card">
       <span class="delete-icon">
-        <i class="bi bi-trash3">
-        </i>
+        <i class="bi bi-trash3"></i>
       </span>
       <span class="kicker">DELETE CONFIRMATION</span>
       <h1>削除してよろしいですか？</h1>
       <p>
-        <strong>{{ label }}</strong> を削除します。この操作は元に戻せません。</p>
+        <strong>{{ label }}</strong> を削除します。この操作は元に戻せません。
+      </p>
       <div class="delete-actions">
         <a class="btn btn-light" href="{{ cancel_url }}">キャンセル</a>
-        <form method="post">{% csrf_token %}<button class="btn btn-danger">
-          <i class="bi bi-trash">
-          </i> 削除する</button>
+        <form method="post">
+          {% csrf_token %}
+          <button class="btn btn-danger">
+            <i class="bi bi-trash"></i>
+            削除する
+          </button>
         </form>
       </div>
     </section>

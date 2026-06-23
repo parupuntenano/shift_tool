@@ -1,5 +1,3 @@
-#管理者→個別制約条件
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
@@ -11,8 +9,7 @@
       <p>条件種別と対象を管理者が指定し、月間シフトの生成へ反映します。</p>
     </div>
     <a class="btn btn-outline-primary" href="{% url 'constraint_type_manage' %}">
-      <i class="bi bi-gear">
-      </i> 条件種別を管理</a>
+      <i class="bi bi-gear"></i> 条件種別を管理</a>
   </header>
 
   {% if not has_rule_types %}
@@ -89,12 +86,10 @@
                 </td>
                 <td class="actions">
                   <a class="btn btn-sm btn-outline-primary" href="{% url 'constraint_edit' item.pk %}">
-                    <i class="bi bi-pencil">
-                    </i>
+                    <i class="bi bi-pencil"></i>
                   </a>
                   <a class="btn btn-sm btn-outline-danger" href="{% url 'constraint_delete' item.pk %}">
-                    <i class="bi bi-trash">
-                    </i>
+                    <i class="bi bi-trash"></i>
                   </a>
                 </td>
               </tr>
@@ -138,3 +133,4 @@
     </aside>
   </div>
 {% endblock %}
+

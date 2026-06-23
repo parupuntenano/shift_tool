@@ -1,5 +1,3 @@
-#管理者→Excel取込
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
@@ -12,8 +10,7 @@
   </header>
   <div class="content-grid">
     <section class="panel upload-panel">
-      <i class="bi bi-cloud-arrow-up">
-      </i>
+      <i class="bi bi-cloud-arrow-up"></i>
       <h2>ファイルを選択</h2>
       <p>.xlsx / .xls / .csv に対応しています。</p>
       <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">取込を開始</button>
@@ -29,8 +26,7 @@
       <h2>最近の取込</h2>
       {% for job in jobs %}
         <div class="history-item">
-          <i class="bi bi-file-earmark-check">
-          </i>
+          <i class="bi bi-file-earmark-check"></i>
           <div>
             <strong>{{ job.filename }}</strong>
             <small>{{ job.created_at }} · {{ job.result }}</small>
@@ -42,3 +38,4 @@
     </aside>
   </div>
 {% endblock %}
+

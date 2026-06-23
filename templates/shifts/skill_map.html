@@ -1,5 +1,3 @@
-#管理者のスキル管理画面
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
@@ -13,13 +11,14 @@
     <div>
       <a class="btn btn-outline-primary" href="{% url 'skill_manage' %}">スキル区分</a>
       <a class="btn btn-primary" href="{% url 'import_skill_map' %}">
-        <i class="bi bi-file-earmark-arrow-up">
-        </i> ファイル取込</a>
+        <i class="bi bi-file-earmark-arrow-up"></i> ファイル取込</a>
     </div>
   </header>
   <div class="panel form-inline-panel mb-4">
     <h2>スキルを設定・変更</h2>
-    <form method="post" class="row g-3 align-items-end">{% csrf_token %}<div class="col-md">{{ form.staff.label_tag }}{{ form.staff }}</div>
+    <form method="post" class="row g-3 align-items-end">
+      {% csrf_token %}
+      <div class="col-md">{{ form.staff.label_tag }}{{ form.staff }}</div>
       <div class="col-md">{{ form.work_type.label_tag }}{{ form.work_type }}</div>
       <div class="col-md">{{ form.level.label_tag }}{{ form.level }}</div>
       <div class="col-md-auto">
@@ -37,8 +36,7 @@
     </div>
     <form method="get" class="skill-search">
       <div class="search-keyword">
-        <i class="bi bi-search">
-        </i>
+        <i class="bi bi-search"></i>
         <input type="search" name="q" value="{{ query }}" placeholder="社員番号・氏名・業務名・スキルで検索">
       </div>
       <select name="work" aria-label="業務で絞り込み">
@@ -66,14 +64,23 @@
         <a class="btn btn-light" href="{% url 'skill_map' %}">クリア</a>
       {% endif %}
     </form>
-    <form method="post" action="{% url 'staff_skill_bulk_delete' %}" id="bulk-delete-form">{% csrf_token %}<div class="bulk-toolbar">
-      <label>
-        <input type="checkbox" id="select-all-skills"> すべて選択</label>
-      <span id="selected-count">0件選択</span>
-      <button class="btn btn-sm btn-outline-danger" id="bulk-delete-button" disabled>
-        <i class="bi bi-trash">
-        </i> 選択した項目を削除</button>
-    </div>
+    <form method="post"
+          action="{% url 'staff_skill_bulk_delete' %}"
+          id="bulk-delete-form">
+      {% csrf_token %}
+      <div class="bulk-toolbar">
+        <label>
+          <input type="checkbox" id="select-all-skills">
+          すべて選択
+        </label>
+        <span id="selected-count">0件選択</span>
+        <button class="btn btn-sm btn-outline-danger"
+                id="bulk-delete-button"
+                disabled>
+          <i class="bi bi-trash"></i>
+          選択した項目を削除
+        </button>
+      </div>
       <div class="table-responsive skill-results">
         <table class="table align-middle">
           <thead>
@@ -100,8 +107,7 @@
                   <span class="skill-symbol">{{ item.level.symbol }}</span> {{ item.level.meaning }}</td>
                 <td>
                   <a class="btn btn-sm btn-outline-danger" href="{% url 'staff_skill_delete' item.pk %}">
-                    <i class="bi bi-trash">
-                    </i>
+                    <i class="bi bi-trash"></i>
                   </a>
                 </td>
               </tr>
@@ -118,8 +124,7 @@
   <details class="panel skill-map-details mt-4">
     <summary>
       <span>
-        <i class="bi bi-grid-3x3-gap">
-        </i> スキルマップ全体を表示</span>
+        <i class="bi bi-grid-3x3-gap"></i> スキルマップ全体を表示</span>
       <small>スタッフ×業務の一覧</small>
     </summary>
     <div class="table-responsive mt-3">
@@ -178,3 +183,4 @@
   </script>
 
 {% endblock %}
+

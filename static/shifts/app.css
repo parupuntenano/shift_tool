@@ -575,6 +575,12 @@ body {
   margin-top: 15px
 }
 
+/* ------------------------------------------------------------------
+   管理者シフト表
+   対応HTML: templates/shifts/shift_detail.html
+   対応View: shifts/presentation/views.py の shift_detail() / _period_rows()
+   ------------------------------------------------------------------ */
+
 .shift-board {
   padding: 0;
   overflow: hidden
@@ -612,6 +618,9 @@ body {
   color: #b4233a !important
 }
 
+/* 日付表示共通
+   対応HTML: shift_detail.html / submit.html / my_shift.html
+   View側の _calendar_days() が holiday / is_saturday / is_non_workday を作る。 */
 .day-label {
   display: flex;
   flex-direction: column;
@@ -659,6 +668,8 @@ body {
   background: #fafbfc
 }
 
+/* 日曜・祝日の赤系表示。
+   HTML側で non-workday class が付いた要素に効く。 */
 .monthly-table th.non-workday {
   --bs-table-bg: #fff1f3;
   --bs-table-color: #b4233a;
@@ -701,6 +712,9 @@ body {
   color: #c44f61 !important
 }
 
+/* 土曜日の青系表示。
+   HTML側で saturday class が付いた要素に効く。
+   non-workday より後ろに書くことで、土曜は赤ではなく青で上書きする。 */
 .monthly-table th.saturday {
   --bs-table-bg: #eef7ff;
   --bs-table-color: #1769b3;
@@ -749,6 +763,12 @@ body {
   padding: 11px;
   border-bottom: 1px solid var(--line)
 }
+
+/* ------------------------------------------------------------------
+   スタッフのシフト提出画面
+   対応HTML: templates/shifts/submit.html
+   対応View: shifts/presentation/views.py の submit_availability()
+   ------------------------------------------------------------------ */
 
 .availability-grid {
   display: grid;
@@ -829,6 +849,11 @@ body {
   color: var(--muted)
 }
 
+/* ------------------------------------------------------------------
+   月切り替えUI
+   対応HTML: my_shift.html の month-switcher / 一部の検索・月指定フォーム
+   ------------------------------------------------------------------ */
+
 .month-filter,
 .month-switcher {
   display: flex;
@@ -885,6 +910,12 @@ body {
   background: #f6f7fb;
   pointer-events: none
 }
+
+/* ------------------------------------------------------------------
+   スタッフのシフト確認画面
+   対応HTML: templates/shifts/my_shift.html
+   対応View: shifts/presentation/views.py の my_shift()
+   ------------------------------------------------------------------ */
 
 .my-shift-grid {
   display: grid;

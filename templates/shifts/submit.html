@@ -1,8 +1,7 @@
-#スタッフのシフト希望提出画面
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
+  {# views.submit_availability が作った days を、スタッフが選択できるカードにする画面。 #}
   <header class="page-header">
     <div>
       <span class="kicker">AVAILABILITY</span>
@@ -11,10 +10,16 @@
     </div>
     <span class="status {{ submission.status }} large">{{ submission.get_status_display }}</span>
   </header>
-  <form method="post">{% csrf_token %}<input type="hidden" name="month" value="{{ month|date:'Y-m' }}">
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="month" value="{{ month|date:'Y-m' }}">
     <div class="availability-grid">
       {% for item in days %}
-        <article class="day-card {% if item.is_non_workday %}non-workday{% endif %} {% if item.is_saturday %}saturday{% endif %}">
+        {# day-card / non-workday / saturday は static/shifts/app.css でカード色に干渉する。 #}
+        <article class="day-card
+          {% if item.is_non_workday %}non-workday{% endif %}
+          {% if item.is_saturday %}saturday{% endif %}
+        ">
           <div class="day-label">
             <strong>{{ item.number }}</strong>
             <span class="day-meta">
@@ -25,6 +30,7 @@
             </span>
           </div>
           <select name="day_{{ item.number }}" class="form-select">
+            {# item.state は AvailabilityDay から復元した現在の提出状態。 #}
             <option value="available"
                     {% if item.state == 'available' %}
                       selected
@@ -50,8 +56,7 @@
         <small>試験中のため、提出後も再提出で更新できます。</small>
       </div>
       <button class="btn btn-primary btn-lg">
-        <i class="bi bi-send-check">
-        </i>
+        <i class="bi bi-send-check"></i>
         この内容で提出
       </button>
     </div>

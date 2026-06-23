@@ -1,8 +1,7 @@
-#管理者→シフト作成・管理→生成後
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
+  {# views.shift_detail → _period_rows() が作った days / rows を表示する管理者用シフト表。 #}
   <header class="page-header">
     <div>
       <span class="kicker">MONTHLY SHIFT</span>
@@ -11,16 +10,20 @@
     </div>
     <div class="actions">
       {% if period.status != 'published' %}
-        <form method="post" action="{% url 'publish_shift' period.pk %}">{% csrf_token %}<button class="btn btn-primary">
-          <i class="bi bi-send">
-          </i> シフトを公開</button>
+        <form method="post" action="{% url 'publish_shift' period.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-primary">
+            <i class="bi bi-send"></i>
+            シフトを公開
+          </button>
         </form>
       {% else %}
         <span class="status published large">公開済み</span>
       {% endif %}
       <a class="btn btn-outline-danger" href="{% url 'shift_delete' period.pk %}">
-        <i class="bi bi-trash">
-        </i> 削除</a>
+        <i class="bi bi-trash"></i>
+        削除
+      </a>
     </div>
   </header>
   <section class="panel shift-board">
@@ -30,7 +33,11 @@
           <tr>
             <th class="sticky-col">氏名</th>
             {% for day in days %}
-              <th class="{% if day.is_non_workday %}non-workday{% endif %} {% if day.is_saturday %}saturday{% endif %}">
+              {# non-workday / saturday は static/shifts/app.css の色分けクラス。 #}
+              <th class="
+                {% if day.is_non_workday %}non-workday{% endif %}
+                {% if day.is_saturday %}saturday{% endif %}
+              ">
                 <span class="day-label table-day-label">
                   <strong>{{ day.number }}</strong>
                   <span class="day-meta">
@@ -54,7 +61,12 @@
                 <strong>{{ row.staff.name }}</strong>
               </td>
               {% for cell in row.cells %}
-                <td class="{% if cell.assignment %}assigned{% else %}rest{% endif %} {% if cell.day.is_non_workday %}non-workday{% endif %} {% if cell.day.is_saturday %}saturday{% endif %}">
+                {# assigned/rest は勤務か休日か、non-workday/saturday は日付色を決める。 #}
+                <td class="
+                  {% if cell.assignment %}assigned{% else %}rest{% endif %}
+                  {% if cell.day.is_non_workday %}non-workday{% endif %}
+                  {% if cell.day.is_saturday %}saturday{% endif %}
+                ">
                   {% if cell.assignment %}
                     {{ cell.assignment.work_type.name }}
                   {% else %}
@@ -62,6 +74,7 @@
                   {% endif %}
                 </td>
               {% endfor %}
+              {# work_count/rest_count は views._period_rows() で集計している。 #}
               <td class="summary-col assigned-count">{{ row.work_count }}</td>
               <td class="summary-col rest-count">{{ row.rest_count }}</td>
             </tr>
@@ -74,8 +87,9 @@
   {% if warnings %}
     <section class="panel warnings">
       <h2>
-        <i class="bi bi-exclamation-triangle">
-        </i> 生成時の警告</h2>
+        <i class="bi bi-exclamation-triangle"></i>
+        生成時の警告
+      </h2>
       {% for warning in warnings %}
         <div>
           <strong>{{ warning.day|date:'n/j' }}</strong>

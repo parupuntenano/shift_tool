@@ -1,5 +1,6 @@
 import calendar
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Iterable
 
@@ -13,6 +14,26 @@ from .entities import (
     StaffMember,
     Work,
 )
+
+
+SAME_WORK_PENALTY = 45
+SKILL_PRIORITY_WEIGHT = 12
+TOTAL_ASSIGNMENT_WEIGHT = 22
+SAME_WORK_ASSIGNMENT_WEIGHT = 16
+MULTI_SKILL_PENALTY = 5
+SHORT_STAFFED_WORK_BONUS = 10
+
+
+@dataclass(frozen=True, order=True)
+class Candidate:
+    """1枠に入れるスタッフ候補。先頭の4項目だけで並び替える。"""
+
+    score: int
+    total_count: int
+    work_count: int
+    staff_id: int
+    work: Work = field(compare=False)
+    member: StaffMember = field(compare=False)
 
 
 class MonthlyShiftGenerator:
@@ -46,161 +67,124 @@ class MonthlyShiftGenerator:
         assignments: list[Assignment] = []
         warnings: list[GenerationWarningData] = []
 
-        for day_number in range(1, calendar.monthrange(month.year, month.month)[1] + 1):
-            current = month.replace(day=day_number)
+        for current in self._days_in_month(month):
             remaining_slots = {
                 work.id: max(1, work.required_staff_per_day) for work in work_list
             }
             work_by_id = {work.id: work for work in work_list}
-            uncovered_work_ids = set(remaining_slots)
 
-            while uncovered_work_ids:
-                assigned_coverage = False
+            self._assign_daily_coverage(
+                current=current,
+                staff_list=staff_list,
+                work_by_id=work_by_id,
+                skill_map=skill_map,
+                availability_map=availability_map,
+                rules=rules,
+                assigned_by_day=assigned_by_day,
+                assignments=assignments,
+                warnings=warnings,
+                remaining_slots=remaining_slots,
+                last_work=last_work,
+                total_assignments=total_assignments,
+                work_assignments=work_assignments,
+                assignable_work_counts=assignable_work_counts,
+                eligible_staff_counts=eligible_staff_counts,
+            )
+            self._fill_daily_remaining_slots(
+                current=current,
+                staff_list=staff_list,
+                work_by_id=work_by_id,
+                skill_map=skill_map,
+                availability_map=availability_map,
+                rules=rules,
+                assigned_by_day=assigned_by_day,
+                assignments=assignments,
+                warnings=warnings,
+                remaining_slots=remaining_slots,
+                last_work=last_work,
+                total_assignments=total_assignments,
+                work_assignments=work_assignments,
+                assignable_work_counts=assignable_work_counts,
+                eligible_staff_counts=eligible_staff_counts,
+            )
+        return GenerationResult(tuple(assignments), tuple(warnings))
 
-                for work_id in sorted(
-                    uncovered_work_ids,
-                    key=lambda item: (
-                        self._eligible_count(
-                            work_by_id[item],
-                            staff_list,
-                            skill_map,
-                            availability_map,
-                            assigned_by_day,
-                            current,
-                            assignments,
-                            rules,
-                        ),
-                        work_by_id[item].display_order,
-                        work_by_id[item].id,
-                    ),
-                ):
-                    work = work_by_id[work_id]
-                    work_candidates = self._work_candidates(
-                        work,
-                        staff_list,
-                        skill_map,
-                        availability_map,
-                        assigned_by_day,
-                        current,
-                        assignments,
-                        rules,
-                        last_work,
-                        total_assignments,
-                        work_assignments,
-                        assignable_work_counts,
-                        eligible_staff_counts,
-                    )
+    @staticmethod
+    def _days_in_month(month: date):
+        day_count = calendar.monthrange(month.year, month.month)[1]
+        for day_number in range(1, day_count + 1):
+            yield month.replace(day=day_number)
 
-                    if not work_candidates:
-                        missing = remaining_slots.pop(work.id)
-                        uncovered_work_ids.remove(work.id)
-                        warnings.append(
-                            GenerationWarningData(
-                                current,
-                                work.id,
-                                f"{work.name}に最低1名を配置できません。{missing}名不足しています。",
-                            )
-                        )
-                        assigned_coverage = True
-                        break
+    @classmethod
+    def _assign_daily_coverage(
+        cls,
+        *,
+        current,
+        staff_list,
+        work_by_id,
+        skill_map,
+        availability_map,
+        rules,
+        assigned_by_day,
+        assignments,
+        warnings,
+        remaining_slots,
+        last_work,
+        total_assignments,
+        work_assignments,
+        assignable_work_counts,
+        eligible_staff_counts,
+    ):
+        """各業務にまず最低1人ずつ配置する。"""
 
-                    self._assign_candidate(
-                        work_candidates[0],
-                        current,
-                        assignments,
-                        assigned_by_day,
-                        total_assignments,
-                        work_assignments,
-                        last_work,
-                        remaining_slots,
-                    )
+        uncovered_work_ids = set(remaining_slots)
+
+        while uncovered_work_ids:
+            assigned_coverage = False
+
+            for work_id in cls._sorted_work_ids(
+                uncovered_work_ids,
+                work_by_id,
+                staff_list,
+                skill_map,
+                availability_map,
+                assigned_by_day,
+                current,
+                assignments,
+                rules,
+            ):
+                work = work_by_id[work_id]
+                candidates = cls._work_candidates(
+                    work,
+                    staff_list,
+                    skill_map,
+                    availability_map,
+                    assigned_by_day,
+                    current,
+                    assignments,
+                    rules,
+                    last_work,
+                    total_assignments,
+                    work_assignments,
+                    assignable_work_counts,
+                    eligible_staff_counts,
+                )
+
+                if not candidates:
+                    missing = remaining_slots.pop(work.id)
                     uncovered_work_ids.remove(work.id)
+                    warnings.append(
+                        GenerationWarningData(
+                            current,
+                            work.id,
+                            f"{work.name}に最低1名を配置できません。{missing}名不足しています。",
+                        )
+                    )
                     assigned_coverage = True
                     break
 
-                if not assigned_coverage:
-                    break
-
-            while remaining_slots:
-                best_candidate = None
-                exhausted_work_ids = []
-
-                for work_id in sorted(
-                    remaining_slots,
-                    key=lambda item: (
-                        self._eligible_count(
-                            work_by_id[item],
-                            staff_list,
-                            skill_map,
-                            availability_map,
-                            assigned_by_day,
-                            current,
-                            assignments,
-                            rules,
-                        ),
-                        work_by_id[item].display_order,
-                        work_by_id[item].id,
-                    ),
-                ):
-                    work = work_by_id[work_id]
-                    work_candidates = self._work_candidates(
-                        work,
-                        staff_list,
-                        skill_map,
-                        availability_map,
-                        assigned_by_day,
-                        current,
-                        assignments,
-                        rules,
-                        last_work,
-                        total_assignments,
-                        work_assignments,
-                        assignable_work_counts,
-                        eligible_staff_counts,
-                    )
-
-                    if not work_candidates:
-                        exhausted_work_ids.append(work.id)
-                        continue
-
-                    work_candidates.sort(key=lambda item: item[:4])
-                    candidate = work_candidates[0]
-                    if best_candidate is None or candidate[:4] < best_candidate[:4]:
-                        best_candidate = candidate
-
-                if best_candidate is None:
-                    for work_id, missing in list(remaining_slots.items()):
-                        work = work_by_id[work_id]
-                        warnings.append(
-                            GenerationWarningData(
-                                current,
-                                work.id,
-                                f"{work.name}の配置が{missing}名不足しています。",
-                            )
-                        )
-                    remaining_slots = {}
-                    break
-
-                for work_id in exhausted_work_ids:
-                    if work_id in remaining_slots:
-                        work = work_by_id[work_id]
-                        missing = remaining_slots.pop(work_id)
-                        warnings.append(
-                            GenerationWarningData(
-                                current,
-                                work.id,
-                                f"{work.name}の配置が{missing}名不足しています。",
-                            )
-                        )
-
-                if not remaining_slots:
-                    break
-
-                _score, _total_count, _work_count, _member_id, work, member = (
-                    best_candidate
-                )
-                self._assign_candidate(
-                    best_candidate,
+                cls._assign_candidate(
+                    candidates[0],
                     current,
                     assignments,
                     assigned_by_day,
@@ -209,18 +193,159 @@ class MonthlyShiftGenerator:
                     last_work,
                     remaining_slots,
                 )
+                uncovered_work_ids.remove(work.id)
+                assigned_coverage = True
+                break
 
-            for work_id, missing in remaining_slots.items():
-                if missing:
-                    work = work_by_id[work_id]
-                    warnings.append(
-                        GenerationWarningData(
-                            current,
-                            work.id,
-                            f"{work.name}の配置が{missing}名不足しています。",
-                        )
-                    )
-        return GenerationResult(tuple(assignments), tuple(warnings))
+            if not assigned_coverage:
+                break
+
+    @classmethod
+    def _fill_daily_remaining_slots(
+        cls,
+        *,
+        current,
+        staff_list,
+        work_by_id,
+        skill_map,
+        availability_map,
+        rules,
+        assigned_by_day,
+        assignments,
+        warnings,
+        remaining_slots,
+        last_work,
+        total_assignments,
+        work_assignments,
+        assignable_work_counts,
+        eligible_staff_counts,
+    ):
+        """最低1人を確保したあと、各業務の残り必要人数を埋める。"""
+
+        while remaining_slots:
+            best_candidate = None
+            exhausted_work_ids = []
+
+            for work_id in cls._sorted_work_ids(
+                remaining_slots,
+                work_by_id,
+                staff_list,
+                skill_map,
+                availability_map,
+                assigned_by_day,
+                current,
+                assignments,
+                rules,
+            ):
+                work = work_by_id[work_id]
+                candidates = cls._work_candidates(
+                    work,
+                    staff_list,
+                    skill_map,
+                    availability_map,
+                    assigned_by_day,
+                    current,
+                    assignments,
+                    rules,
+                    last_work,
+                    total_assignments,
+                    work_assignments,
+                    assignable_work_counts,
+                    eligible_staff_counts,
+                )
+
+                if not candidates:
+                    exhausted_work_ids.append(work.id)
+                    continue
+
+                candidate = candidates[0]
+                if best_candidate is None or candidate < best_candidate:
+                    best_candidate = candidate
+
+            if best_candidate is None:
+                cls._warn_all_remaining_slots(
+                    current, work_by_id, remaining_slots, warnings
+                )
+                break
+
+            cls._warn_exhausted_works(
+                current, work_by_id, remaining_slots, exhausted_work_ids, warnings
+            )
+            if not remaining_slots:
+                break
+
+            cls._assign_candidate(
+                best_candidate,
+                current,
+                assignments,
+                assigned_by_day,
+                total_assignments,
+                work_assignments,
+                last_work,
+                remaining_slots,
+            )
+
+    @classmethod
+    def _sorted_work_ids(
+        cls,
+        work_ids,
+        work_by_id,
+        staff_list,
+        skill_map,
+        availability_map,
+        assigned_by_day,
+        current,
+        assignments,
+        rules,
+    ):
+        return sorted(
+            work_ids,
+            key=lambda work_id: (
+                cls._eligible_count(
+                    work_by_id[work_id],
+                    staff_list,
+                    skill_map,
+                    availability_map,
+                    assigned_by_day,
+                    current,
+                    assignments,
+                    rules,
+                ),
+                work_by_id[work_id].display_order,
+                work_by_id[work_id].id,
+            ),
+        )
+
+    @staticmethod
+    def _warn_all_remaining_slots(current, work_by_id, remaining_slots, warnings):
+        for work_id, missing in list(remaining_slots.items()):
+            work = work_by_id[work_id]
+            warnings.append(
+                GenerationWarningData(
+                    current,
+                    work.id,
+                    f"{work.name}の配置が{missing}名不足しています。",
+                )
+            )
+        remaining_slots.clear()
+
+    @staticmethod
+    def _warn_exhausted_works(
+        current, work_by_id, remaining_slots, exhausted_work_ids, warnings
+    ):
+        for work_id in exhausted_work_ids:
+            if work_id not in remaining_slots:
+                continue
+
+            work = work_by_id[work_id]
+            missing = remaining_slots.pop(work_id)
+            warnings.append(
+                GenerationWarningData(
+                    current,
+                    work.id,
+                    f"{work.name}の配置が{missing}名不足しています。",
+                )
+            )
 
     @classmethod
     def _work_candidates(
@@ -274,24 +399,30 @@ class MonthlyShiftGenerator:
             score = (
                 rule_penalty
                 + cls._alternation_bonus(member.id, work.id, assignments, rules)
-                + (45 if last_work.get(member.id) == work.id else 0)
-                + (cls._effective_priority(rating) * 12)
-                + (total_assignments[member.id] * 22)
-                + (work_assignments[(member.id, work.id)] * 16)
-                + (assignable_work_counts[member.id] * 5)
-                - (max(0, 10 - eligible_staff_counts[work.id]) * 10)
-            )
-            candidates.append(
-                (
-                    score,
-                    total_assignments[member.id],
-                    work_assignments[(member.id, work.id)],
-                    member.id,
-                    work,
-                    member,
+                + (SAME_WORK_PENALTY if last_work.get(member.id) == work.id else 0)
+                + (cls._effective_priority(rating) * SKILL_PRIORITY_WEIGHT)
+                + (total_assignments[member.id] * TOTAL_ASSIGNMENT_WEIGHT)
+                + (
+                    work_assignments[(member.id, work.id)]
+                    * SAME_WORK_ASSIGNMENT_WEIGHT
+                )
+                + (assignable_work_counts[member.id] * MULTI_SKILL_PENALTY)
+                - (
+                    max(0, 10 - eligible_staff_counts[work.id])
+                    * SHORT_STAFFED_WORK_BONUS
                 )
             )
-        candidates.sort(key=lambda item: item[:4])
+            candidates.append(
+                Candidate(
+                    score=score,
+                    total_count=total_assignments[member.id],
+                    work_count=work_assignments[(member.id, work.id)],
+                    staff_id=member.id,
+                    work=work,
+                    member=member,
+                )
+            )
+        candidates.sort()
         return candidates
 
     @staticmethod
@@ -305,7 +436,8 @@ class MonthlyShiftGenerator:
         last_work,
         remaining_slots,
     ):
-        _score, _total_count, _work_count, _member_id, work, member = candidate
+        work = candidate.work
+        member = candidate.member
         assignments.append(Assignment(member.id, work.id, current))
         assigned_by_day.add((member.id, current))
         total_assignments[member.id] += 1

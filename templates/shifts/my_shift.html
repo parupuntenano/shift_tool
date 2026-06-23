@@ -1,8 +1,7 @@
-#スタッフ→シフト確認
-
 {% extends 'shifts/base.html' %}
 
 {% block content %}
+  {# views.my_shift が公開済みシフトとカレンダー情報を合わせて表示する画面。 #}
   <header class="page-header">
     <div>
       <span class="kicker">MY SCHEDULE</span>
@@ -10,6 +9,7 @@
       <p>公開済みの担当業務と休日を確認できます。</p>
     </div>
     <nav class="month-switcher" aria-label="表示月の切り替え">
+      {# prev_month / next_month は views.my_shift で範囲制限している。 #}
       {% if prev_month %}
         <a class="month-arrow" href="{% url 'my_shift' %}?month={{ prev_month|date:'Y-m' }}">&lt;</a>
       {% else %}
@@ -17,7 +17,8 @@
       {% endif %}
       <strong>{{ month|date:'Y年n月' }}</strong>
       {% if next_month %}
-        <a class="month-arrow" href="{% url 'my_shift' %}?month={{ next_month|date:'Y-m' }}">&gt;</a>
+        <a class="month-arrow"
+           href="{% url 'my_shift' %}?month={{ next_month|date:'Y-m' }}">&gt;</a>
       {% else %}
         <span class="month-arrow disabled">&gt;</span>
       {% endif %}
@@ -26,7 +27,12 @@
   {% if period %}
     <div class="my-shift-grid">
       {% for item in days %}
-        <article class="my-day {% if not item.assignment %}off{% endif %} {% if item.is_non_workday %}non-workday{% endif %} {% if item.is_saturday %}saturday{% endif %}">
+        {# my-day / off / non-workday / saturday は static/shifts/app.css のカード色に干渉する。 #}
+        <article class="my-day
+          {% if not item.assignment %}off{% endif %}
+          {% if item.is_non_workday %}non-workday{% endif %}
+          {% if item.is_saturday %}saturday{% endif %}
+        ">
           <div class="day-label">
             <strong>{{ item.date|date:'j' }}</strong>
             <span class="day-meta">
@@ -50,8 +56,7 @@
     </div>
   {% else %}
     <div class="panel empty-state">
-      <i class="bi bi-calendar2-x">
-      </i>
+      <i class="bi bi-calendar2-x"></i>
       <h2>まだ公開されていません</h2>
       <p>{{ month|date:'Y年n月' }}のシフトは管理者の公開後に表示されます。</p>
     </div>
