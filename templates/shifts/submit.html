@@ -12,10 +12,15 @@
   <form method="post">{% csrf_token %}<input type="hidden" name="month" value="{{ month|date:'Y-m' }}">
     <div class="availability-grid">
       {% for item in days %}
-        <article class="day-card {% if item.date.weekday >= 5 %}weekend{% endif %}">
-          <div>
+        <article class="day-card {% if item.is_non_workday %}non-workday{% endif %} {% if item.is_saturday %}saturday{% endif %}">
+          <div class="day-label">
             <strong>{{ item.number }}</strong>
-            <small>{{ item.date|date:'D' }}</small>
+            <span class="day-meta">
+              {% if item.holiday %}
+                <small class="holiday-name">{{ item.holiday }}</small>
+              {% endif %}
+              <small>{{ item.date|date:'D' }}</small>
+            </span>
           </div>
           <select name="day_{{ item.number }}" class="form-select">
             <option value="available"
@@ -40,11 +45,13 @@
     <div class="submit-bar">
       <div>
         <strong>{{ month|date:'Y年n月' }}分</strong>
-        <small>選択内容は再提出で更新できます。</small>
+        <small>試験中のため、提出後も再提出で更新できます。</small>
       </div>
       <button class="btn btn-primary btn-lg">
         <i class="bi bi-send-check">
-        </i> この内容で提出</button>
+        </i>
+        この内容で提出
+      </button>
     </div>
   </form>
 {% endblock %}

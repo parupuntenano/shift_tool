@@ -597,6 +597,57 @@ body {
   min-width: 150px
 }
 
+.monthly-table .summary-col {
+  min-width: 72px;
+  background: #f7f5ff !important;
+  color: var(--primary-dark) !important;
+  font-weight: 900
+}
+
+.monthly-table td.summary-col {
+  font-size: 16px
+}
+
+.monthly-table td.rest-count {
+  color: #b4233a !important
+}
+
+.day-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  text-align: center
+}
+
+.day-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-height: 1.4em
+}
+
+.day-meta small {
+  display: block;
+  line-height: 1.2
+}
+
+.holiday-name {
+  color: #b4233a !important;
+  font-weight: 800
+}
+
+.table-day-label strong {
+  font-size: 16px;
+  line-height: 1
+}
+
+.table-day-label small {
+  font-size: 10px
+}
+
 .monthly-table td.assigned {
   background: #f0edff;
   color: #5237c4;
@@ -606,6 +657,82 @@ body {
 .monthly-table td.rest {
   color: #a3a9b6;
   background: #fafbfc
+}
+
+.monthly-table th.non-workday {
+  --bs-table-bg: #fff1f3;
+  --bs-table-color: #b4233a;
+  background-color: #fff1f3 !important;
+  box-shadow: inset 0 0 0 9999px #fff1f3 !important;
+  color: #b4233a !important
+}
+
+.monthly-table th small,
+.monthly-table th.non-workday small {
+  display: block;
+  color: #8992a4;
+  font-size: 10px;
+  line-height: 1.25
+}
+
+.monthly-table th.non-workday small {
+  color: #c44f61 !important
+}
+
+.monthly-table td.non-workday {
+  --bs-table-bg: #fff8f9;
+  background-color: #fff8f9 !important;
+  box-shadow: inset 0 0 0 9999px #fff8f9 !important
+}
+
+.monthly-table td.assigned.non-workday {
+  --bs-table-bg: #ffe8ed;
+  --bs-table-color: #9d1c32;
+  background-color: #ffe8ed !important;
+  box-shadow: inset 0 0 0 9999px #ffe8ed !important;
+  color: #9d1c32 !important
+}
+
+.monthly-table td.rest.non-workday {
+  --bs-table-bg: #fff1f3;
+  --bs-table-color: #c44f61;
+  background-color: #fff1f3 !important;
+  box-shadow: inset 0 0 0 9999px #fff1f3 !important;
+  color: #c44f61 !important
+}
+
+.monthly-table th.saturday {
+  --bs-table-bg: #eef7ff;
+  --bs-table-color: #1769b3;
+  background-color: #eef7ff !important;
+  box-shadow: inset 0 0 0 9999px #eef7ff !important;
+  color: #1769b3 !important
+}
+
+.monthly-table th.saturday small {
+  color: #2f7fc1 !important
+}
+
+.monthly-table td.saturday {
+  --bs-table-bg: #f6fbff;
+  background-color: #f6fbff !important;
+  box-shadow: inset 0 0 0 9999px #f6fbff !important
+}
+
+.monthly-table td.assigned.saturday {
+  --bs-table-bg: #e6f3ff;
+  --bs-table-color: #0f5f9f;
+  background-color: #e6f3ff !important;
+  box-shadow: inset 0 0 0 9999px #e6f3ff !important;
+  color: #0f5f9f !important
+}
+
+.monthly-table td.rest.saturday {
+  --bs-table-bg: #eef7ff;
+  --bs-table-color: #2f7fc1;
+  background-color: #eef7ff !important;
+  box-shadow: inset 0 0 0 9999px #eef7ff !important;
+  color: #2f7fc1 !important
 }
 
 .warnings {
@@ -637,14 +764,23 @@ body {
   box-shadow: 0 5px 15px rgba(34, 43, 68, .04)
 }
 
-.day-card.weekend {
-  background: #fbfaff
+.day-card.weekend,
+.day-card.non-workday {
+  background: #fff1f3 !important;
+  border-color: #ffd1da !important
 }
 
-.day-card>div {
+.day-card.saturday {
+  background: #eef7ff !important;
+  border-color: #b9dcff !important
+}
+
+.day-card .day-label {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
+  gap: 4px;
   margin-bottom: 12px
 }
 
@@ -654,6 +790,16 @@ body {
 
 .day-card small {
   color: var(--muted)
+}
+
+.day-card.non-workday small {
+  color: #b4233a !important;
+  font-weight: 700
+}
+
+.day-card.saturday small {
+  color: #1769b3 !important;
+  font-weight: 700
 }
 
 .day-card select {
@@ -683,6 +829,63 @@ body {
   color: var(--muted)
 }
 
+.month-filter,
+.month-switcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px
+}
+
+.month-filter label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800
+}
+
+.month-filter input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 42px
+}
+
+.month-switcher strong {
+  min-width: 110px;
+  text-align: center;
+  font-size: 16px
+}
+
+.month-arrow {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  border: 1px solid #d9deea;
+  background: #fff;
+  color: var(--primary);
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none
+}
+
+.month-arrow:hover {
+  background: var(--primary-soft);
+  border-color: #c8bdff
+}
+
+.month-arrow.disabled {
+  color: #c5cad4;
+  background: #f6f7fb;
+  pointer-events: none
+}
+
 .my-shift-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -698,9 +901,12 @@ body {
   padding: 13px
 }
 
-.my-day>div {
+.my-day .day-label {
   display: flex;
-  justify-content: space-between
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px
 }
 
 .my-day>span {
@@ -718,6 +924,36 @@ body {
 
 .my-day.off>span {
   color: #9ba2b0
+}
+
+.my-day.non-workday {
+  background: #fff8f9 !important;
+  border-color: #ffd1da !important;
+  border-top-color: #e04f67 !important
+}
+
+.my-day.non-workday small {
+  color: #b4233a !important;
+  font-weight: 700
+}
+
+.my-day.off.non-workday {
+  background: #fff1f3 !important
+}
+
+.my-day.saturday {
+  background: #f6fbff !important;
+  border-color: #b9dcff !important;
+  border-top-color: #2f7fc1 !important
+}
+
+.my-day.saturday small {
+  color: #1769b3 !important;
+  font-weight: 700
+}
+
+.my-day.off.saturday {
+  background: #eef7ff !important
 }
 
 .empty-state {

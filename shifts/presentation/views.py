@@ -1,5 +1,8 @@
 import calendar
 from datetime import date
+import json
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
@@ -50,6 +53,62 @@ def _month(value=None):
             pass
     today = timezone.localdate()
     return today.replace(day=1)
+
+
+def _add_months(month, offset):
+    year = month.year + (month.month - 1 + offset) // 12
+    month_number = (month.month - 1 + offset) % 12 + 1
+    return month.replace(year=year, month=month_number, day=1)
+
+
+def _next_month():
+    return _add_months(timezone.localdate().replace(day=1), 1)
+
+
+def _holidays_for_month(month):
+    day_count = calendar.monthrange(month.year, month.month)[1]
+    params = {
+        "mode": "d",
+        "cnt": day_count,
+        "targetyyyy": month.year,
+        "targetmm": f"{month.month:02d}",
+        "targetdd": "01",
+    }
+    url = "https://koyomi.zingsystem.com/api/?" + urlencode(params)
+
+    try:
+        with urlopen(url, timeout=5) as response:
+            data = json.load(response)
+    except Exception:
+        return {}
+
+    holidays = {}
+    for day_text, info in data.get("datelist", {}).items():
+        holiday_name = info.get("holiday", "")
+        if holiday_name:
+            holidays[date.fromisoformat(day_text)] = holiday_name
+    return holidays
+
+
+def _calendar_days(month):
+    day_count = calendar.monthrange(month.year, month.month)[1]
+    holidays = _holidays_for_month(month)
+    days = []
+    for number in range(1, day_count + 1):
+        current = month.replace(day=number)
+        holiday_name = holidays.get(current, "")
+        days.append(
+            {
+                "number": number,
+                "date": current,
+                "holiday": holiday_name,
+                "is_holiday": bool(holiday_name),
+                "is_saturday": current.weekday() == 5,
+                "is_weekend": current.weekday() >= 5,
+                "is_non_workday": current.weekday() >= 5 or bool(holiday_name),
+            }
+        )
+    return days
 
 
 def _delete_confirmation(request, obj, label, cancel_url, success_url, on_deleted=None):
@@ -574,21 +633,31 @@ def generate_shift(request):
 
 
 def _period_rows(period):
-    day_count = calendar.monthrange(period.month.year, period.month.month)[1]
+    days = _calendar_days(period.month)
     staff_list = Staff.objects.filter(company=period.company, active=True)
     assignment_map = {
         (item.staff_id, item.day.day): item
         for item in period.assignments.select_related("work_type")
     }
-    return list(range(1, day_count + 1)), [
-        {
-            "staff": staff,
-            "cells": [
-                assignment_map.get((staff.id, day)) for day in range(1, day_count + 1)
-            ],
-        }
-        for staff in staff_list
-    ]
+    rows = []
+    for staff in staff_list:
+        cells = [
+            {
+                "day": day,
+                "assignment": assignment_map.get((staff.id, day["number"])),
+            }
+            for day in days
+        ]
+        work_count = sum(1 for cell in cells if cell["assignment"])
+        rows.append(
+            {
+                "staff": staff,
+                "cells": cells,
+                "work_count": work_count,
+                "rest_count": len(days) - work_count,
+            }
+        )
+    return days, rows
 
 
 @login_required
@@ -636,7 +705,8 @@ def shift_delete(request, pk):
 @login_required
 @staff_required
 def submit_availability(request):
-    month = _month(request.POST.get("month") or request.GET.get("month"))
+    requested_month = request.POST.get("month") or request.GET.get("month")
+    month = _month(requested_month) if requested_month else _next_month()
     submission, _ = AvailabilitySubmission.objects.get_or_create(
         staff=request.staff, month=month
     )
@@ -665,25 +735,41 @@ def submit_availability(request):
         )
         for item in submission.days.all()
     }
-    days = [
-        {
-            "number": number,
-            "date": month.replace(day=number),
-            "state": saved.get(number, "available"),
-        }
-        for number in range(1, day_count + 1)
-    ]
+
+    days = []
+
+    for day in _calendar_days(month):
+        days.append(
+            {
+                **day,
+                "state": saved.get(day["number"], "available"),
+            }
+        )
     return render(
         request,
         "shifts/submit.html",
-        {"month": month, "submission": submission, "days": days},
+        {
+            "month": month,
+            "submission": submission,
+            "days": days,
+        },
     )
 
 
 @login_required
 @staff_required
 def my_shift(request):
-    month = _month(request.GET.get("month"))
+    requested_month = request.GET.get("month")
+    today_month = timezone.localdate().replace(day=1)
+    min_month = _add_months(today_month, -1)
+    max_month = _add_months(today_month, 1)
+    month = _month(requested_month) if requested_month else max_month
+    if month < min_month:
+        month = min_month
+    elif month > max_month:
+        month = max_month
+    prev_month = _add_months(month, -1) if month > min_month else None
+    next_month = _add_months(month, 1) if month < max_month else None
     period = ShiftPeriod.objects.filter(
         company=request.company, month=month, status=ShiftPeriod.Status.PUBLISHED
     ).first()
@@ -693,15 +779,22 @@ def my_shift(request):
         else []
     )
     assignment_map = {item.day.day: item for item in assignments}
-    day_count = calendar.monthrange(month.year, month.month)[1]
     days = [
-        {"date": month.replace(day=number), "assignment": assignment_map.get(number)}
-        for number in range(1, day_count + 1)
+        {**day, "assignment": assignment_map.get(day["number"])}
+        for day in _calendar_days(month)
     ]
     return render(
         request,
         "shifts/my_shift.html",
-        {"month": month, "period": period, "days": days},
+        {
+            "month": month,
+            "period": period,
+            "days": days,
+            "min_month": min_month,
+            "max_month": max_month,
+            "prev_month": prev_month,
+            "next_month": next_month,
+        },
     )
 
 

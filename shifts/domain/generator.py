@@ -31,9 +31,16 @@ class MonthlyShiftGenerator:
         staff_list = list(staff)
         work_list = sorted(works, key=lambda item: (item.display_order, item.id))
         skill_map = {(item.staff_id, item.work_id): item for item in skills}
+        assignable_work_counts: Counter[int] = Counter(
+            item.staff_id for item in skills if item.assignable
+        )
+        eligible_staff_counts: Counter[int] = Counter(
+            item.work_id for item in skills if item.assignable
+        )
         availability_map = {(item.staff_id, item.day): item for item in availability}
         rules = list(constraints)
         total_assignments: Counter[int] = Counter()
+        work_assignments: Counter[tuple[int, int]] = Counter()
         last_work: dict[int, int] = {}
         assigned_by_day: set[tuple[int, date]] = set()
         assignments: list[Assignment] = []
@@ -41,15 +48,39 @@ class MonthlyShiftGenerator:
 
         for day_number in range(1, calendar.monthrange(month.year, month.month)[1] + 1):
             current = month.replace(day=day_number)
-            for work in work_list:
-                selected_count = 0
-                for _slot in range(work.required_staff_per_day):
-                    candidates = []
+            remaining_slots = {
+                work.id: work.required_staff_per_day for work in work_list
+            }
+            work_by_id = {work.id: work for work in work_list}
+
+            while remaining_slots:
+                best_candidate = None
+                exhausted_work_ids = []
+
+                for work_id in sorted(
+                    remaining_slots,
+                    key=lambda item: (
+                        self._eligible_count(
+                            work_by_id[item],
+                            staff_list,
+                            skill_map,
+                            availability_map,
+                            assigned_by_day,
+                            current,
+                            assignments,
+                            rules,
+                        ),
+                        work_by_id[item].display_order,
+                        work_by_id[item].id,
+                    ),
+                ):
+                    work = work_by_id[work_id]
                     assigned_same_work = {
                         item.staff_id
                         for item in assignments
                         if item.day == current and item.work_id == work.id
                     }
+                    work_candidates = []
                     for member in staff_list:
                         available = availability_map.get((member.id, current))
                         rating = skill_map.get((member.id, work.id))
@@ -80,27 +111,81 @@ class MonthlyShiftGenerator:
                         )
                         if not allowed:
                             continue
-                        repeat_penalty = 1 if last_work.get(member.id) == work.id else 0
-                        candidates.append(
+                        score = (
+                            rule_penalty
+                            + self._alternation_bonus(
+                                member.id, work.id, assignments, rules
+                            )
+                            + (45 if last_work.get(member.id) == work.id else 0)
+                            + (self._effective_priority(rating) * 12)
+                            + (total_assignments[member.id] * 22)
+                            + (work_assignments[(member.id, work.id)] * 16)
+                            + (assignable_work_counts[member.id] * 5)
+                            - (max(0, 10 - eligible_staff_counts[work.id]) * 10)
+                        )
+                        work_candidates.append(
                             (
-                                rating.priority,
-                                rule_penalty + repeat_penalty,
+                                score,
                                 total_assignments[member.id],
+                                work_assignments[(member.id, work.id)],
                                 member.id,
+                                work,
                                 member,
                             )
                         )
-                    candidates.sort(key=lambda item: item[:4])
-                    if not candidates:
-                        break
-                    member = candidates[0][4]
-                    assignments.append(Assignment(member.id, work.id, current))
-                    assigned_by_day.add((member.id, current))
-                    total_assignments[member.id] += 1
-                    last_work[member.id] = work.id
-                    selected_count += 1
-                missing = work.required_staff_per_day - selected_count
+
+                    if not work_candidates:
+                        exhausted_work_ids.append(work.id)
+                        continue
+
+                    work_candidates.sort(key=lambda item: item[:4])
+                    candidate = work_candidates[0]
+                    if best_candidate is None or candidate[:4] < best_candidate[:4]:
+                        best_candidate = candidate
+
+                if best_candidate is None:
+                    for work_id, missing in list(remaining_slots.items()):
+                        work = work_by_id[work_id]
+                        warnings.append(
+                            GenerationWarningData(
+                                current,
+                                work.id,
+                                f"{work.name}の配置が{missing}名不足しています。",
+                            )
+                        )
+                    remaining_slots = {}
+                    break
+
+                for work_id in exhausted_work_ids:
+                    if work_id in remaining_slots:
+                        work = work_by_id[work_id]
+                        missing = remaining_slots.pop(work_id)
+                        warnings.append(
+                            GenerationWarningData(
+                                current,
+                                work.id,
+                                f"{work.name}の配置が{missing}名不足しています。",
+                            )
+                        )
+
+                if not remaining_slots:
+                    break
+
+                _score, _total_count, _work_count, _member_id, work, member = (
+                    best_candidate
+                )
+                assignments.append(Assignment(member.id, work.id, current))
+                assigned_by_day.add((member.id, current))
+                total_assignments[member.id] += 1
+                work_assignments[(member.id, work.id)] += 1
+                last_work[member.id] = work.id
+                remaining_slots[work.id] -= 1
+                if remaining_slots[work.id] <= 0:
+                    del remaining_slots[work.id]
+
+            for work_id, missing in remaining_slots.items():
                 if missing:
+                    work = work_by_id[work_id]
                     warnings.append(
                         GenerationWarningData(
                             current,
@@ -159,8 +244,83 @@ class MonthlyShiftGenerator:
             if violated and rule.is_hard:
                 return False, penalty
             if violated:
-                penalty += 100
+                penalty += cls._soft_penalty(rule.operator)
         return True, penalty
+
+    @staticmethod
+    def _soft_penalty(operator: str) -> int:
+        if operator == "work_rest_pattern":
+            return 20
+        if operator == "work_alternation":
+            return 80
+        if operator in {"avoid_same_work", "avoid_specific_work"}:
+            return 60
+        if operator == "no_single_rest":
+            return 70
+        return 100
+
+    @classmethod
+    def _eligible_count(
+        cls,
+        work,
+        staff_list,
+        skill_map,
+        availability_map,
+        assigned_by_day,
+        current,
+        assignments,
+        rules,
+    ) -> int:
+        count = 0
+        assigned_same_work = {
+            item.staff_id
+            for item in assignments
+            if item.day == current and item.work_id == work.id
+        }
+        for member in staff_list:
+            available = availability_map.get((member.id, current))
+            rating = skill_map.get((member.id, work.id))
+            if (
+                not available
+                or not available.available
+                or available.preferred_off
+                or not rating
+                or not rating.assignable
+                or (member.id, current) in assigned_by_day
+            ):
+                continue
+            if (
+                cls._consecutive_days(member.id, current, assignments)
+                >= member.max_consecutive_days
+            ):
+                continue
+            allowed, _penalty = cls._evaluate_rules(
+                member.id, work.id, current, assigned_same_work, assignments, rules
+            )
+            if allowed:
+                count += 1
+        return count
+
+    @classmethod
+    def _alternation_bonus(cls, staff_id, work_id, assignments, rules) -> int:
+        bonus = 0
+        for rule in rules:
+            if (
+                rule.operator != "work_alternation"
+                or rule.staff_id != staff_id
+                or work_id not in rule.work_ids
+            ):
+                continue
+            previous = cls._last_work_in(staff_id, rule.work_ids, assignments)
+            if previous and previous != work_id:
+                bonus -= 80 if rule.is_hard else 55
+        return bonus
+
+    @staticmethod
+    def _effective_priority(rating: SkillRating) -> int:
+        if rating.assignable and rating.priority >= 90:
+            return 4
+        return rating.priority
 
     @staticmethod
     def _work_rest_pattern(value):

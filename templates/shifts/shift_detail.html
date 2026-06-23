@@ -28,8 +28,20 @@
           <tr>
             <th class="sticky-col">氏名</th>
             {% for day in days %}
-              <th>{{ day }}</th>
+              <th class="{% if day.is_non_workday %}non-workday{% endif %} {% if day.is_saturday %}saturday{% endif %}">
+                <span class="day-label table-day-label">
+                  <strong>{{ day.number }}</strong>
+                  <span class="day-meta">
+                    {% if day.holiday %}
+                      <small class="holiday-name">{{ day.holiday }}</small>
+                    {% endif %}
+                    <small>{{ day.date|date:'D' }}</small>
+                  </span>
+                </span>
+              </th>
             {% endfor %}
+            <th class="summary-col">出勤数</th>
+            <th class="summary-col">休日数</th>
           </tr>
         </thead>
         <tbody>
@@ -39,15 +51,17 @@
                 <small>{{ row.staff.employee_number }}</small>
                 <strong>{{ row.staff.name }}</strong>
               </td>
-              {% for item in row.cells %}
-                <td class="{% if item %}assigned{% else %}rest{% endif %}">
-                  {% if item %}
-                    {{ item.work_type.name }}
+              {% for cell in row.cells %}
+                <td class="{% if cell.assignment %}assigned{% else %}rest{% endif %} {% if cell.day.is_non_workday %}non-workday{% endif %} {% if cell.day.is_saturday %}saturday{% endif %}">
+                  {% if cell.assignment %}
+                    {{ cell.assignment.work_type.name }}
                   {% else %}
                     休
                   {% endif %}
                 </td>
               {% endfor %}
+              <td class="summary-col assigned-count">{{ row.work_count }}</td>
+              <td class="summary-col rest-count">{{ row.rest_count }}</td>
             </tr>
           {% endfor %}
         </tbody>

@@ -7,14 +7,32 @@
       <h1>{{ month|date:'Y年n月' }} マイシフト</h1>
       <p>公開済みの担当業務と休日を確認できます。</p>
     </div>
+    <nav class="month-switcher" aria-label="表示月の切り替え">
+      {% if prev_month %}
+        <a class="month-arrow" href="{% url 'my_shift' %}?month={{ prev_month|date:'Y-m' }}">&lt;</a>
+      {% else %}
+        <span class="month-arrow disabled">&lt;</span>
+      {% endif %}
+      <strong>{{ month|date:'Y年n月' }}</strong>
+      {% if next_month %}
+        <a class="month-arrow" href="{% url 'my_shift' %}?month={{ next_month|date:'Y-m' }}">&gt;</a>
+      {% else %}
+        <span class="month-arrow disabled">&gt;</span>
+      {% endif %}
+    </nav>
   </header>
   {% if period %}
     <div class="my-shift-grid">
       {% for item in days %}
-        <article class="my-day {% if not item.assignment %}off{% endif %}">
-          <div>
+        <article class="my-day {% if not item.assignment %}off{% endif %} {% if item.is_non_workday %}non-workday{% endif %} {% if item.is_saturday %}saturday{% endif %}">
+          <div class="day-label">
             <strong>{{ item.date|date:'j' }}</strong>
-            <small>{{ item.date|date:'D' }}</small>
+            <span class="day-meta">
+              {% if item.holiday %}
+                <small class="holiday-name">{{ item.holiday }}</small>
+              {% endif %}
+              <small>{{ item.date|date:'D' }}</small>
+            </span>
           </div>
           {% if item.assignment %}
             <span>{{ item.assignment.work_type.name }}</span>
