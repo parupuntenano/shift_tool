@@ -62,6 +62,29 @@ class MonthlyShiftGeneratorTests(TestCase):
             [(1, 10), (2, 20), (3, 10), (4, 20)],
         )
 
+    def test_places_at_least_one_staff_on_each_work_before_extra_slots(self):
+        month = date(2026, 2, 1)
+        staff = [
+            StaffMember(1, "A"),
+            StaffMember(2, "B"),
+            StaffMember(3, "C"),
+        ]
+        works = [Work(10, "業務A", 2, 1), Work(20, "業務B", 1, 2)]
+        skills = [
+            SkillRating(1, 10, 1, True),
+            SkillRating(2, 10, 1, True),
+            SkillRating(2, 20, 1, True),
+            SkillRating(3, 20, 1, True),
+        ]
+        availability = [Availability(staff_id, month, True) for staff_id in (1, 2, 3)]
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability
+        )
+        day_one_work_ids = {
+            item.work_id for item in result.assignments if item.day == month
+        }
+        self.assertEqual(day_one_work_ids, {10, 20})
+
     def test_incompatible_staff_are_not_assigned_to_same_work(self):
         month = date(2026, 2, 1)
         staff = [StaffMember(1, "A"), StaffMember(2, "B")]

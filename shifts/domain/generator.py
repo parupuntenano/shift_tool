@@ -49,9 +49,77 @@ class MonthlyShiftGenerator:
         for day_number in range(1, calendar.monthrange(month.year, month.month)[1] + 1):
             current = month.replace(day=day_number)
             remaining_slots = {
-                work.id: work.required_staff_per_day for work in work_list
+                work.id: max(1, work.required_staff_per_day) for work in work_list
             }
             work_by_id = {work.id: work for work in work_list}
+            uncovered_work_ids = set(remaining_slots)
+
+            while uncovered_work_ids:
+                assigned_coverage = False
+
+                for work_id in sorted(
+                    uncovered_work_ids,
+                    key=lambda item: (
+                        self._eligible_count(
+                            work_by_id[item],
+                            staff_list,
+                            skill_map,
+                            availability_map,
+                            assigned_by_day,
+                            current,
+                            assignments,
+                            rules,
+                        ),
+                        work_by_id[item].display_order,
+                        work_by_id[item].id,
+                    ),
+                ):
+                    work = work_by_id[work_id]
+                    work_candidates = self._work_candidates(
+                        work,
+                        staff_list,
+                        skill_map,
+                        availability_map,
+                        assigned_by_day,
+                        current,
+                        assignments,
+                        rules,
+                        last_work,
+                        total_assignments,
+                        work_assignments,
+                        assignable_work_counts,
+                        eligible_staff_counts,
+                    )
+
+                    if not work_candidates:
+                        missing = remaining_slots.pop(work.id)
+                        uncovered_work_ids.remove(work.id)
+                        warnings.append(
+                            GenerationWarningData(
+                                current,
+                                work.id,
+                                f"{work.name}に最低1名を配置できません。{missing}名不足しています。",
+                            )
+                        )
+                        assigned_coverage = True
+                        break
+
+                    self._assign_candidate(
+                        work_candidates[0],
+                        current,
+                        assignments,
+                        assigned_by_day,
+                        total_assignments,
+                        work_assignments,
+                        last_work,
+                        remaining_slots,
+                    )
+                    uncovered_work_ids.remove(work.id)
+                    assigned_coverage = True
+                    break
+
+                if not assigned_coverage:
+                    break
 
             while remaining_slots:
                 best_candidate = None
@@ -75,64 +143,21 @@ class MonthlyShiftGenerator:
                     ),
                 ):
                     work = work_by_id[work_id]
-                    assigned_same_work = {
-                        item.staff_id
-                        for item in assignments
-                        if item.day == current and item.work_id == work.id
-                    }
-                    work_candidates = []
-                    for member in staff_list:
-                        available = availability_map.get((member.id, current))
-                        rating = skill_map.get((member.id, work.id))
-                        if (
-                            not available
-                            or not available.available
-                            or available.preferred_off
-                        ):
-                            continue
-                        if (
-                            not rating
-                            or not rating.assignable
-                            or (member.id, current) in assigned_by_day
-                        ):
-                            continue
-                        if (
-                            self._consecutive_days(member.id, current, assignments)
-                            >= member.max_consecutive_days
-                        ):
-                            continue
-                        allowed, rule_penalty = self._evaluate_rules(
-                            member.id,
-                            work.id,
-                            current,
-                            assigned_same_work,
-                            assignments,
-                            rules,
-                        )
-                        if not allowed:
-                            continue
-                        score = (
-                            rule_penalty
-                            + self._alternation_bonus(
-                                member.id, work.id, assignments, rules
-                            )
-                            + (45 if last_work.get(member.id) == work.id else 0)
-                            + (self._effective_priority(rating) * 12)
-                            + (total_assignments[member.id] * 22)
-                            + (work_assignments[(member.id, work.id)] * 16)
-                            + (assignable_work_counts[member.id] * 5)
-                            - (max(0, 10 - eligible_staff_counts[work.id]) * 10)
-                        )
-                        work_candidates.append(
-                            (
-                                score,
-                                total_assignments[member.id],
-                                work_assignments[(member.id, work.id)],
-                                member.id,
-                                work,
-                                member,
-                            )
-                        )
+                    work_candidates = self._work_candidates(
+                        work,
+                        staff_list,
+                        skill_map,
+                        availability_map,
+                        assigned_by_day,
+                        current,
+                        assignments,
+                        rules,
+                        last_work,
+                        total_assignments,
+                        work_assignments,
+                        assignable_work_counts,
+                        eligible_staff_counts,
+                    )
 
                     if not work_candidates:
                         exhausted_work_ids.append(work.id)
@@ -174,14 +199,16 @@ class MonthlyShiftGenerator:
                 _score, _total_count, _work_count, _member_id, work, member = (
                     best_candidate
                 )
-                assignments.append(Assignment(member.id, work.id, current))
-                assigned_by_day.add((member.id, current))
-                total_assignments[member.id] += 1
-                work_assignments[(member.id, work.id)] += 1
-                last_work[member.id] = work.id
-                remaining_slots[work.id] -= 1
-                if remaining_slots[work.id] <= 0:
-                    del remaining_slots[work.id]
+                self._assign_candidate(
+                    best_candidate,
+                    current,
+                    assignments,
+                    assigned_by_day,
+                    total_assignments,
+                    work_assignments,
+                    last_work,
+                    remaining_slots,
+                )
 
             for work_id, missing in remaining_slots.items():
                 if missing:
@@ -194,6 +221,99 @@ class MonthlyShiftGenerator:
                         )
                     )
         return GenerationResult(tuple(assignments), tuple(warnings))
+
+    @classmethod
+    def _work_candidates(
+        cls,
+        work,
+        staff_list,
+        skill_map,
+        availability_map,
+        assigned_by_day,
+        current,
+        assignments,
+        rules,
+        last_work,
+        total_assignments,
+        work_assignments,
+        assignable_work_counts,
+        eligible_staff_counts,
+    ):
+        assigned_same_work = {
+            item.staff_id
+            for item in assignments
+            if item.day == current and item.work_id == work.id
+        }
+        candidates = []
+        for member in staff_list:
+            available = availability_map.get((member.id, current))
+            rating = skill_map.get((member.id, work.id))
+            if not available or not available.available or available.preferred_off:
+                continue
+            if (
+                not rating
+                or not rating.assignable
+                or (member.id, current) in assigned_by_day
+            ):
+                continue
+            if (
+                cls._consecutive_days(member.id, current, assignments)
+                >= member.max_consecutive_days
+            ):
+                continue
+            allowed, rule_penalty = cls._evaluate_rules(
+                member.id,
+                work.id,
+                current,
+                assigned_same_work,
+                assignments,
+                rules,
+            )
+            if not allowed:
+                continue
+            score = (
+                rule_penalty
+                + cls._alternation_bonus(member.id, work.id, assignments, rules)
+                + (45 if last_work.get(member.id) == work.id else 0)
+                + (cls._effective_priority(rating) * 12)
+                + (total_assignments[member.id] * 22)
+                + (work_assignments[(member.id, work.id)] * 16)
+                + (assignable_work_counts[member.id] * 5)
+                - (max(0, 10 - eligible_staff_counts[work.id]) * 10)
+            )
+            candidates.append(
+                (
+                    score,
+                    total_assignments[member.id],
+                    work_assignments[(member.id, work.id)],
+                    member.id,
+                    work,
+                    member,
+                )
+            )
+        candidates.sort(key=lambda item: item[:4])
+        return candidates
+
+    @staticmethod
+    def _assign_candidate(
+        candidate,
+        current,
+        assignments,
+        assigned_by_day,
+        total_assignments,
+        work_assignments,
+        last_work,
+        remaining_slots,
+    ):
+        _score, _total_count, _work_count, _member_id, work, member = candidate
+        assignments.append(Assignment(member.id, work.id, current))
+        assigned_by_day.add((member.id, current))
+        total_assignments[member.id] += 1
+        work_assignments[(member.id, work.id)] += 1
+        last_work[member.id] = work.id
+        remaining_slots[work.id] -= 1
+        if remaining_slots[work.id] <= 0:
+            del remaining_slots[work.id]
 
     @classmethod
     def _evaluate_rules(
