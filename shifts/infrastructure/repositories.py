@@ -35,6 +35,8 @@ class DjangoShiftRepository:
             active=True,
         ).exclude(staff=None)
         for rule in rules:
+            if rule.strength < 10:
+                continue
             limits[rule.staff_id] = int(
                 rule.numeric_value or rule.parameters.get("days", 6)
             )
@@ -82,7 +84,7 @@ class DjangoShiftRepository:
         result = []
         for row in rows:
             operator = row.rule_type.operator
-            if operator in {"custom", "max_consecutive"}:
+            if operator == "custom":
                 continue
             result.append(
                 ConstraintRule(
@@ -98,6 +100,7 @@ class DjangoShiftRepository:
                     text_value=row.text_value,
                     weekdays=tuple(int(value) for value in row.weekdays),
                     is_hard=row.is_hard,
+                    strength=row.strength,
                 )
             )
         return result

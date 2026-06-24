@@ -43,6 +43,7 @@ class ConstraintRule:
     text_value: str = ""
     weekdays: tuple[int, ...] = ()
     is_hard: bool = True
+    strength: int | None = None
 
 
 @dataclass(frozen=True)

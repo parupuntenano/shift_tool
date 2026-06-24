@@ -1,5 +1,6 @@
 import calendar
 import json
+from io import BytesIO
 from datetime import date
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -8,12 +9,16 @@ from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
+from django.http import HttpResponse
 from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from shifts.application.use_cases import GenerateMonthlyShift, ImportSkillMap
 from shifts.infrastructure.importers import SkillMapFileReader, SkillMapReadError
@@ -40,7 +45,6 @@ from .forms import (
     ImportForm,
     SkillLevelForm,
     StaffForm,
-    StaffSkillForm,
     WorkTypeForm,
 )
 
@@ -161,7 +165,13 @@ def home(request):
 @login_required
 @admin_required
 def manager_dashboard(request):
+    # ダッシュボードは ?month=YYYY-MM で表示月を切り替える。
+    # templates/shifts/manager_dashboard.html の「翌月のダッシュボードへ」ボタンが
+    # next_month を使ってこのviewに戻ってくる。
     month = _month(request.GET.get("month"))
+    current_month = timezone.localdate().replace(day=1)
+    prev_month = _add_months(month, -1)
+    next_month = _add_months(month, 1)
     active_staff = Staff.objects.filter(company=request.company, active=True)
     submitted = AvailabilitySubmission.objects.filter(
         staff__company=request.company,
@@ -175,6 +185,9 @@ def manager_dashboard(request):
     ).first()
     context = {
         "month": month,
+        "current_month": current_month,
+        "prev_month": prev_month,
+        "next_month": next_month,
         "staff_count": staff_count,
         "submitted_count": submitted,
         "submission_rate": rate,
@@ -360,6 +373,20 @@ def skill_delete(request, pk):
     )
 
 
+def _constraint_items(company, query=""):
+    # 個別制約の検索は、編集したいスタッフをすぐ見つけるために
+    # 名前・社員番号だけを対象にする。
+    items = IndividualConstraint.objects.filter(company=company).select_related(
+        "staff", "related_staff", "rule_type", "work_type_a", "work_type_b"
+    )
+    if query:
+        items = items.filter(
+            Q(staff__name__icontains=query)
+            | Q(staff__employee_number__icontains=query)
+        )
+    return items
+
+
 @login_required
 @admin_required
 def constraint_manage(request):
@@ -368,15 +395,15 @@ def constraint_manage(request):
         form.save_for_company(request.company)
         messages.success(request, "制約条件を登録しました。")
         return redirect("constraint_manage")
-    items = IndividualConstraint.objects.filter(company=request.company).select_related(
-        "staff", "related_staff", "rule_type", "work_type_a", "work_type_b"
-    )
+    query = request.GET.get("q", "").strip()
+    items = _constraint_items(request.company, query)
     return render(
         request,
         "shifts/constraint_manage.html",
         {
             "form": form,
             "items": items,
+            "query": query,
             "has_rule_types": ConstraintType.objects.filter(
                 company=request.company, active=True
             ).exists(),
@@ -393,9 +420,8 @@ def constraint_edit(request, pk):
         form.save_for_company(request.company)
         messages.success(request, "制約条件を更新しました。")
         return redirect("constraint_manage")
-    items = IndividualConstraint.objects.filter(company=request.company).select_related(
-        "staff", "related_staff", "rule_type", "work_type_a", "work_type_b"
-    )
+    query = request.GET.get("q", "").strip()
+    items = _constraint_items(request.company, query)
     return render(
         request,
         "shifts/constraint_manage.html",
@@ -403,6 +429,7 @@ def constraint_edit(request, pk):
             "form": form,
             "items": items,
             "editing_item": item,
+            "query": query,
             "has_rule_types": ConstraintType.objects.filter(
                 company=request.company, active=True
             ).exists(),
@@ -474,38 +501,98 @@ def constraint_type_delete(request, pk):
 @login_required
 @admin_required
 def skill_map(request):
-    form = StaffSkillForm(request.POST or None, company=request.company)
-    if request.method == "POST" and form.is_valid():
-        StaffSkill.objects.update_or_create(
-            staff=form.cleaned_data["staff"],
-            work_type=form.cleaned_data["work_type"],
-            defaults={"level": form.cleaned_data["level"]},
-        )
-        messages.success(request, "スタッフスキルを更新しました。")
-        return redirect("skill_map")
     works = list(WorkType.objects.filter(company=request.company, active=True))
+    skill_levels = list(SkillLevel.objects.filter(company=request.company))
+    matrix_query = request.GET.get("matrix_q", "").strip()
+    delete_query = request.GET.get("delete_q", "").strip()
+    work_filter = request.GET.get("work", "")
+    level_filter = request.GET.get("level", "")
+
+    if request.method == "POST" and request.POST.get("action") == "update_matrix":
+        staff_ids = {
+            staff_id
+            for staff_id in Staff.objects.filter(
+                company=request.company, active=True
+            ).values_list("id", flat=True)
+        }
+        work_ids = {work.id for work in works}
+        level_ids = {level.id for level in skill_levels}
+        updated_count = 0
+        deleted_count = 0
+
+        for staff_id in staff_ids:
+            for work_id in work_ids:
+                field_name = f"skill_{staff_id}_{work_id}"
+                if field_name not in request.POST:
+                    continue
+
+                level_id = request.POST.get(field_name)
+                current_skill = StaffSkill.objects.filter(
+                    staff_id=staff_id,
+                    staff__company=request.company,
+                    work_type_id=work_id,
+                )
+
+                if not level_id:
+                    deleted_count += current_skill.count()
+                    current_skill.delete()
+                    continue
+
+                if not level_id.isdigit() or int(level_id) not in level_ids:
+                    continue
+
+                StaffSkill.objects.update_or_create(
+                    staff_id=staff_id,
+                    work_type_id=work_id,
+                    defaults={"level_id": int(level_id)},
+                )
+                updated_count += 1
+
+        messages.success(
+            request,
+            f"スキルマップを更新しました。（更新{updated_count}件・未設定{deleted_count}件）",
+        )
+        redirect_url = reverse("skill_map")
+        if request.GET:
+            redirect_url = f"{redirect_url}?{request.GET.urlencode()}"
+        return redirect(redirect_url)
+
+    staff_qs = Staff.objects.filter(company=request.company, active=True)
+    if matrix_query:
+        staff_qs = staff_qs.filter(
+            Q(employee_number__icontains=matrix_query)
+            | Q(name__icontains=matrix_query)
+        )
+
     staff_rows = []
-    for staff in Staff.objects.filter(company=request.company, active=True):
+    for staff in staff_qs:
         levels = {
             item.work_type_id: item.level
             for item in staff.work_skills.select_related("level")
         }
         staff_rows.append(
-            {"staff": staff, "cells": [levels.get(work.id) for work in works]}
+            {
+                "staff": staff,
+                "cells": [
+                    {
+                        "field_name": f"skill_{staff.id}_{work.id}",
+                        "level": levels.get(work.id),
+                        "work": work,
+                    }
+                    for work in works
+                ],
+            }
         )
-    query = request.GET.get("q", "").strip()
-    work_filter = request.GET.get("work", "")
-    level_filter = request.GET.get("level", "")
     skill_entries = StaffSkill.objects.filter(
         staff__company=request.company
     ).select_related("staff", "work_type", "level")
-    if query:
+    if delete_query:
         skill_entries = skill_entries.filter(
-            Q(staff__employee_number__icontains=query)
-            | Q(staff__name__icontains=query)
-            | Q(work_type__name__icontains=query)
-            | Q(level__symbol__icontains=query)
-            | Q(level__meaning__icontains=query)
+            Q(staff__employee_number__icontains=delete_query)
+            | Q(staff__name__icontains=delete_query)
+            | Q(work_type__name__icontains=delete_query)
+            | Q(level__symbol__icontains=delete_query)
+            | Q(level__meaning__icontains=delete_query)
         )
     if work_filter.isdigit():
         skill_entries = skill_entries.filter(work_type_id=int(work_filter))
@@ -514,18 +601,40 @@ def skill_map(request):
     skill_entries = skill_entries.order_by(
         "staff__employee_number", "work_type__display_order", "work_type__id"
     )
+    matrix_clear_params = {
+        key: value
+        for key, value in {
+            "delete_q": delete_query,
+            "work": work_filter,
+            "level": level_filter,
+        }.items()
+        if value
+    }
+    delete_clear_params = {
+        "matrix_q": matrix_query,
+    } if matrix_query else {}
     return render(
         request,
         "shifts/skill_map.html",
         {
-            "form": form,
             "works": works,
             "staff_rows": staff_rows,
             "skill_entries": skill_entries,
-            "query": query,
+            "matrix_query": matrix_query,
+            "delete_query": delete_query,
             "work_filter": work_filter,
             "level_filter": level_filter,
-            "skill_levels": SkillLevel.objects.filter(company=request.company),
+            "matrix_clear_url": (
+                f"{reverse('skill_map')}?{urlencode(matrix_clear_params)}"
+                if matrix_clear_params
+                else reverse("skill_map")
+            ),
+            "delete_clear_url": (
+                f"{reverse('skill_map')}?{urlencode(delete_clear_params)}"
+                if delete_clear_params
+                else reverse("skill_map")
+            ),
+            "skill_levels": skill_levels,
         },
     )
 
@@ -573,6 +682,255 @@ def staff_skill_bulk_delete(request):
     )
 
 
+def _skill_import_template_workbook(company):
+    works = list(WorkType.objects.filter(company=company, active=True))
+    skill_levels = list(SkillLevel.objects.filter(company=company))
+    if not skill_levels:
+        skill_levels = [
+            {"symbol": "◎", "meaning": "リーダー", "priority": 1, "assignable": True},
+            {"symbol": "○", "meaning": "対応可能", "priority": 2, "assignable": True},
+            {"symbol": "△", "meaning": "訓練中", "priority": 3, "assignable": True},
+            {"symbol": "×", "meaning": "対応不可", "priority": 99, "assignable": False},
+        ]
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "スキル表"
+    headers = ["社員番号", "氏名", "備考"]
+    sample_rows = [
+        ["S001", "青木 太郎", "2勤1休;4勤不可;単休不可"],
+        ["S002", "田中 花子", "業務Aと業務B交互;業務A連続不可"],
+        ["S003", "佐藤 次郎", "業務B禁止"],
+    ]
+
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    note_fill = PatternFill("solid", fgColor="FFF2CC")
+
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for sample in sample_rows:
+        sheet.append(sample)
+
+    for cell in sheet["C"][1:]:
+        cell.fill = note_fill
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    for column_index, header in enumerate(headers, start=1):
+        width = 14
+        if header == "氏名":
+            width = 18
+        elif header == "備考":
+            width = 42
+        sheet.column_dimensions[get_column_letter(column_index)].width = width
+    sheet.freeze_panes = "A2"
+
+    level_sheet = workbook.create_sheet("スキル区分")
+    level_headers = ["記号", "意味", "優先度", "アサイン可"]
+    level_sheet.append(level_headers)
+    for cell in level_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for index, level in enumerate(skill_levels, start=1):
+        if isinstance(level, dict):
+            symbol = level["symbol"]
+            meaning = level["meaning"]
+            priority = level["priority"]
+            assignable = level["assignable"]
+        else:
+            symbol = level.symbol
+            meaning = level.meaning
+            priority = level.priority
+            assignable = level.assignable
+        level_sheet.append([symbol, meaning, priority, "可" if assignable else "不可"])
+    for column_index, width in enumerate((12, 28, 12, 14), start=1):
+        level_sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    work_sheet = workbook.create_sheet("業務マスタ")
+    work_headers = ["業務名", "最低必要人数", "有効"]
+    work_sheet.append(work_headers)
+    for cell in work_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    if works:
+        for work in works:
+            work_sheet.append(
+                [
+                    work.name,
+                    work.required_staff_per_day,
+                    "有効" if work.active else "無効",
+                ]
+            )
+    else:
+        for name in ("業務A", "業務B", "業務C"):
+            work_sheet.append([name, 1, "有効"])
+
+    for column_index, width in enumerate((24, 16, 12), start=1):
+        work_sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    guide = workbook.create_sheet("入力ルール")
+    guide_rows = [
+        ["項目", "入力内容"],
+        ["社員番号", "ログインIDにも使う番号です。必須です。"],
+        ["氏名", "スタッフ名です。必須です。"],
+        ["備考", "個別制約にしたい条件を書きます。複数ある場合は ; で区切れます。"],
+        ["業務マスタ", "業務名・最低必要人数・有効を入力します。取込時に業務管理へ反映します。"],
+        ["業務列", "スキル表のD列以降には、業務マスタと同じ業務名を見出しとして追加します。"],
+        ["スキル区分", "スキル区分シートの記号・意味・優先度・アサイン可を取込時に自動設定します。"],
+        ["備考例", "2勤1休 / 4勤不可 / 単休不可"],
+        ["備考例", "業務Aと業務B交互 / 業務A連続不可 / 業務B禁止"],
+    ]
+    for row in guide_rows:
+        guide.append(row)
+    for cell in guide[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    guide.column_dimensions["A"].width = 16
+    guide.column_dimensions["B"].width = 72
+
+    return workbook
+
+
+def _skill_import_sample_workbook():
+    # 実運用前にそのまま取り込んで試せるサンプル。
+    # 対応画面: templates/shifts/import.html の「サンプルデータをダウンロード」
+    workbook = Workbook()
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    note_fill = PatternFill("solid", fgColor="FFF2CC")
+    skill_fill = PatternFill("solid", fgColor="EAF4FF")
+
+    sheet = workbook.active
+    sheet.title = "スキル表"
+    headers = ["社員番号", "氏名", "備考", "受付", "ロール", "エーカス"]
+    sample_rows = [
+        ["S001", "青木 太郎", "2勤1休;単休不可", "◎", "○", "△"],
+        ["S002", "田中 花子", "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
+        ["S003", "佐藤 次郎", "受付禁止", "×", "○", "◎"],
+        ["S004", "鈴木 花", "4勤不可", "◎", "△", "○"],
+        ["S005", "高橋 健", "エーカス連続不可", "○", "◎", "○"],
+        ["S006", "伊藤 美咲", "ロール禁止", "◎", "×", "○"],
+        ["S007", "渡辺 翔", "2勤1休", "△", "◎", "○"],
+        ["S008", "山本 葵", "単休不可", "○", "○", "◎"],
+        ["S009", "中村 優", "受付とロール交互", "◎", "◎", "△"],
+        ["S010", "小林 陸", "", "○", "△", "◎"],
+    ]
+
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for row in sample_rows:
+        sheet.append(row)
+
+    for cell in sheet["C"][1:]:
+        cell.fill = note_fill
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    for row in sheet.iter_rows(min_row=2, min_col=4, max_col=6):
+        for cell in row:
+            cell.fill = skill_fill
+            cell.alignment = Alignment(horizontal="center")
+
+    for column_index, width in enumerate((14, 18, 42, 12, 12, 12), start=1):
+        sheet.column_dimensions[get_column_letter(column_index)].width = width
+    sheet.freeze_panes = "A2"
+
+    level_sheet = workbook.create_sheet("スキル区分")
+    level_sheet.append(["記号", "意味", "優先度", "アサイン可"])
+    for cell in level_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for row in (
+        ["◎", "主担当・指導可", 1, "可"],
+        ["○", "対応可能", 2, "可"],
+        ["△", "補助・訓練中", 3, "可"],
+        ["×", "対応不可", 99, "不可"],
+    ):
+        level_sheet.append(row)
+    for column_index, width in enumerate((12, 28, 12, 14), start=1):
+        level_sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    work_sheet = workbook.create_sheet("業務マスタ")
+    work_sheet.append(["業務名", "最低必要人数", "有効"])
+    for cell in work_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for row in (
+        ["受付", 2, "有効"],
+        ["ロール", 2, "有効"],
+        ["エーカス", 1, "有効"],
+    ):
+        work_sheet.append(row)
+    for column_index, width in enumerate((24, 16, 12), start=1):
+        work_sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    guide = workbook.create_sheet("入力ルール")
+    guide_rows = [
+        ["項目", "入力内容"],
+        ["このファイルの目的", "取込テスト用のサンプルです。スタッフ10人・業務3つを登録できます。"],
+        ["社員番号", "取込後のログインIDにも使われます。初期パスワードは 0000 です。"],
+        ["備考", "個別制約へ自動変換される条件の例を入れています。不要なら空欄で問題ありません。"],
+        ["業務マスタ", "業務名・最低必要人数・有効を業務管理へ反映します。"],
+        ["スキル表", "D列以降の業務名とセルの記号から、スタッフごとのスキルを登録します。"],
+        ["スキル区分", "記号の意味・優先度・アサイン可否を登録します。"],
+    ]
+    for row in guide_rows:
+        guide.append(row)
+    for cell in guide[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    guide.column_dimensions["A"].width = 18
+    guide.column_dimensions["B"].width = 78
+
+    return workbook
+
+
+@login_required
+@admin_required
+def download_import_template(request):
+    workbook = _skill_import_template_workbook(request.company)
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="shift_import_template.xlsx"'
+    )
+    return response
+
+
+@login_required
+@admin_required
+def download_import_sample(request):
+    workbook = _skill_import_sample_workbook()
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="shift_import_sample.xlsx"'
+    return response
+
+
 @login_required
 @admin_required
 def import_skill_map(request):
@@ -595,6 +953,8 @@ def import_skill_map(request):
             messages.success(
                 request,
                 f"スタッフ{result['staff']}件、スキル{result['skills']}件を取り込みました。"
+                f"スキル区分{result.get('levels', 0)}件を設定しました。"
+                f"備考から個別制約{result.get('constraints', 0)}件を反映しました。"
                 f"新規ログインアカウントは{result.get('accounts', 0)}件です。",
             )
             return redirect("skill_map")

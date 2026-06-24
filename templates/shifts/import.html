@@ -7,6 +7,12 @@
       <h1>スキル表取込</h1>
       <p>既存のExcel・CSVスキルマップをそのまま活用できます。</p>
     </div>
+    <div class="page-actions">
+      <a class="btn btn-outline-primary" href="{% url 'download_import_template' %}">
+        <i class="bi bi-download"></i> 見本フォーマットをダウンロード</a>
+      <a class="btn btn-primary" href="{% url 'download_import_sample' %}">
+        <i class="bi bi-file-earmark-spreadsheet"></i> サンプルデータをダウンロード</a>
+    </div>
   </header>
   <div class="content-grid">
     <section class="panel upload-panel">
@@ -17,8 +23,13 @@
       </form>
       <div class="format-guide">
         <strong>必要な見出し</strong>
-        <code>社員番号, 氏名, 備考, [業務名1], [業務名2]...</code>
-        <small>業務列のセルには「◎」「○」「訓練中」など、登録済みまたは新しいスキル記号を入力します。</small>
+        <code>社員番号, 氏名, 備考</code>
+        <small>迷ったら右上の「見本フォーマット」をダウンロードして、その形のまま編集してください。</small>
+        <small>動作確認だけしたい場合は「サンプルデータ」を取り込むと、スタッフ10人・業務3つをまとめて試せます。</small>
+        <small>「業務マスタ」シートに業務名・最低必要人数・有効を入力すると、業務管理へ自動反映します。</small>
+        <small>業務スキルも取り込む場合は、スキル表のD列以降に業務マスタと同じ業務名を見出しとして追加し、セルにスキル記号を入力します。</small>
+        <small>見本の「スキル区分」シートに記号・意味・優先度・アサイン可を書くと、会社ごとのマーク設定も自動反映します。</small>
+        <small>備考には「2勤1休」「4勤不可」「単休不可」「ロールとエーカス交互」「ロール禁止」などを書くと、個別制約へ自動反映します。</small>
         <small>初回取込時は、ログインIDを社員番号、初期パスワードを「0000」として自動登録します。</small>
       </div>
     </section>

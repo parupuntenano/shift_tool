@@ -12,6 +12,22 @@
       <h1>管理者ダッシュボード</h1>
       <p>シフト提出状況と生成結果をひと目で確認できます。</p>
     </div>
+    {# views.manager_dashboard の prev_month / next_month で表示月を切り替える。 #}
+    <nav class="dashboard-month-actions" aria-label="ダッシュボード表示月の切り替え">
+      <a class="btn btn-light"
+         href="{% url 'manager_dashboard' %}?month={{ prev_month|date:'Y-m' }}">
+        {{ prev_month|date:'n月' }}のダッシュボードへ
+      </a>
+      {% if month != current_month %}
+        <a class="btn btn-outline-primary" href="{% url 'manager_dashboard' %}">
+          今月へ戻る
+        </a>
+      {% endif %}
+      <a class="btn btn-primary"
+         href="{% url 'manager_dashboard' %}?month={{ next_month|date:'Y-m' }}">
+        {{ next_month|date:'n月' }}のダッシュボードへ
+      </a>
+    </nav>
   </header>
   <section class="metric-grid">
     <div class="metric-card">

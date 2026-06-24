@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -14,6 +15,14 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def default_strength_label(self):
+        return strength_label(self.default_strength)
+
+    @property
+    def default_strength_class(self):
+        return strength_class(self.default_strength)
 
 
 class CompanyMembership(models.Model):
@@ -77,7 +86,7 @@ class WorkType(models.Model):
     name = models.CharField("業務名", max_length=100)
     display_order = models.PositiveIntegerField("表示順", default=0)
     required_staff_per_day = models.PositiveSmallIntegerField(
-        "1日の必要人数", default=1, validators=[MinValueValidator(1)]
+        "最低必要人数", default=1, validators=[MinValueValidator(1)]
     )
     active = models.BooleanField("有効", default=True)
 
@@ -166,6 +175,12 @@ class ConstraintType(models.Model):
     operator = models.CharField("判定方式", max_length=40, choices=Operator.choices)
     description = models.TextField("説明", blank=True)
     default_is_hard = models.BooleanField("初期値をHard Constraintにする", default=True)
+    default_strength = models.PositiveSmallIntegerField(
+        "初期強度",
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text="10は絶対守る、1〜9は数字が大きいほど強く優先します。",
+    )
     active = models.BooleanField("有効", default=True)
 
     class Meta:
@@ -240,6 +255,12 @@ class IndividualConstraint(models.Model):
     name = models.CharField("条件名", max_length=100)
     kind = models.CharField("条件種別", max_length=30, choices=Kind.choices)
     is_hard = models.BooleanField("Hard Constraint", default=True)
+    strength = models.PositiveSmallIntegerField(
+        "強度",
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text="10は絶対守る、1〜9は数字が大きいほど強く優先します。",
+    )
     parameters = models.JSONField("パラメータ", default=dict, blank=True)
     active = models.BooleanField("有効", default=True)
 
@@ -252,11 +273,39 @@ class IndividualConstraint(models.Model):
         return self.name
 
     @property
+    def strength_label(self):
+        return strength_label(self.strength)
+
+    @property
+    def strength_class(self):
+        return strength_class(self.strength)
+
+    @property
     def weekday_labels(self):
         labels = ["月", "火", "水", "木", "金", "土", "日"]
         return "・".join(
             labels[int(value)] for value in self.weekdays if 0 <= int(value) <= 6
         )
+
+
+def strength_label(value):
+    if value >= 10:
+        return "絶対"
+    if value >= 8:
+        return "強め"
+    if value >= 5:
+        return "標準"
+    return "弱め"
+
+
+def strength_class(value):
+    if value >= 10:
+        return "warning"
+    if value >= 8:
+        return "strength-high"
+    if value >= 5:
+        return "strength-middle"
+    return "strength-low"
 
 
 class AvailabilitySubmission(models.Model):

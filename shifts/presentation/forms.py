@@ -71,11 +71,12 @@ class WorkTypeForm(forms.ModelForm):
 class SkillLevelForm(forms.ModelForm):
     class Meta:
         model = SkillLevel
-        fields = ["symbol", "meaning", "priority", "assignable", "display_order"]
+        fields = ["symbol", "meaning", "priority", "assignable"]
 
     def save_for_company(self, company):
         item = self.save(commit=False)
         item.company = company
+        item.display_order = item.priority
         item.save()
         return item
 
@@ -83,11 +84,15 @@ class SkillLevelForm(forms.ModelForm):
 class ConstraintTypeForm(forms.ModelForm):
     class Meta:
         model = ConstraintType
-        fields = ["name", "operator", "description", "default_is_hard", "active"]
+        fields = ["name", "operator", "description", "default_strength", "active"]
+        widgets = {
+            "default_strength": forms.NumberInput(attrs={"min": 1, "max": 10}),
+        }
 
     def save_for_company(self, company):
         item = self.save(commit=False)
         item.company = company
+        item.default_is_hard = item.default_strength == 10
         item.save()
         return item
 
@@ -120,9 +125,12 @@ class ConstraintForm(forms.ModelForm):
             "numeric_value",
             "text_value",
             "weekdays",
-            "is_hard",
+            "strength",
             "active",
         ]
+        widgets = {
+            "strength": forms.NumberInput(attrs={"min": 1, "max": 10}),
+        }
 
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -144,6 +152,11 @@ class ConstraintForm(forms.ModelForm):
             if company
             else ConstraintType.objects.none()
         )
+        self.fields["strength"].help_text = (
+            "10は絶対守る、1〜9は数字が大きいほど強く優先します。"
+        )
+        if not self.instance.pk:
+            self.fields["strength"].initial = 10
         self.fields["numeric_value"].help_text = (
             "最大連続勤務日数など、選択した判定方式で必要な場合に入力"
         )
@@ -157,6 +170,9 @@ class ConstraintForm(forms.ModelForm):
         rule_type = cleaned.get("rule_type")
         if not rule_type:
             return cleaned
+        strength = cleaned.get("strength")
+        if strength is not None and not 1 <= strength <= 10:
+            self.add_error("strength", "強度は1〜10で入力してください。")
         operator = rule_type.operator
         staff_required_operators = {
             ConstraintType.Operator.MAX_CONSECUTIVE,
@@ -225,6 +241,7 @@ class ConstraintForm(forms.ModelForm):
         )
         item.parameters = {"value": item.numeric_value} if item.numeric_value else {}
         item.weekdays = [int(value) for value in self.cleaned_data.get("weekdays", [])]
+        item.is_hard = item.strength == 10
         item.save()
         return item
 

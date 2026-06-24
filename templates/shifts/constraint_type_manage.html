@@ -31,7 +31,11 @@
                   <small class="d-block text-muted">{{ item.description|default:'—' }}</small>
                 </td>
                 <td>{{ item.get_operator_display }}</td>
-                <td>{{ item.default_is_hard|yesno:'Hard,Soft' }}</td>
+                <td>
+                  <span class="status {{ item.default_strength_class }}">
+                    強度{{ item.default_strength }}・{{ item.default_strength_label }}
+                  </span>
+                </td>
                 <td>{{ item.active|yesno:'有効,無効' }}</td>
                 <td class="actions">
                   <a class="btn btn-sm btn-outline-primary" href="{% url 'constraint_type_edit' item.pk %}">
@@ -59,18 +63,23 @@
           条件種別を追加
         {% endif %}
       </h2>
-      <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
-        {% if editing_item %}
-          更新する
-        {% else %}
-          登録する
-        {% endif %}
-      </button>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="btn btn-primary w-100">
+          {% if editing_item %}
+            更新する
+          {% else %}
+            登録する
+          {% endif %}
+        </button>
         {% if editing_item %}
           <a class="btn btn-light w-100 mt-2" href="{% url 'constraint_type_manage' %}">キャンセル</a>
         {% endif %}
       </form>
-      <p class="hint mt-3">条件種別名は自由です。判定方式が同じでも、用途別に複数の種別を作成できます。</p>
+      <p class="hint mt-3">
+        条件種別名は自由です。強度10は絶対守る、8〜9は強め、5〜7は標準、1〜4は弱めです。
+      </p>
     </aside>
   </div>
 {% endblock %}

@@ -44,6 +44,6 @@ class ImportSkillMap:
 
     def execute(self, company_id: int, filename: str, file_obj) -> dict[str, int]:
         parsed = self.reader.read(filename, file_obj)
-        if not parsed.rows:
+        if not parsed.rows and not parsed.skill_levels and not parsed.work_types:
             raise ValueError("取込対象のデータがありません。")
         return self.repository.save_skill_map(company_id, parsed)

@@ -176,6 +176,14 @@ body {
   margin: 0
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px
+}
+
 .kicker {
   color: var(--primary);
   font-weight: 800;
@@ -251,6 +259,17 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(320px, .7fr);
   gap: 24px
+}
+
+/* 管理者ダッシュボードの月切り替え。
+   対応HTML: templates/shifts/manager_dashboard.html
+   対応View: views.manager_dashboard() の prev_month / next_month */
+.dashboard-month-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px
 }
 
 .panel {
@@ -384,6 +403,21 @@ body {
   color: #c34747
 }
 
+.status.strength-high {
+  background: #fff0df;
+  color: #a96b00
+}
+
+.status.strength-middle {
+  background: #e9f3ff;
+  color: #286da8
+}
+
+.status.strength-low {
+  background: #eef1f6;
+  color: #697286
+}
+
 .status.large {
   font-size: 13px;
   padding: 9px 14px
@@ -476,6 +510,25 @@ body {
   min-width: 700px
 }
 
+.skill-map-scroll {
+  max-height: 620px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px
+}
+
+.skill-map-edit .skill-table {
+  margin-bottom: 0;
+  min-width: 980px
+}
+
+.skill-map-edit thead {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 3
+}
+
 .skill-table .sticky-col,
 .monthly-table .sticky-col {
   position: sticky;
@@ -490,6 +543,62 @@ body {
 .monthly-table .sticky-col small,
 .monthly-table .sticky-col strong {
   display: block
+}
+
+.skill-table .sticky-col small {
+  color: var(--muted);
+  font-size: 11px
+}
+
+.skill-select {
+  width: 100%;
+  min-width: 110px;
+  border: 1px solid #d9deea;
+  border-radius: 9px;
+  background: #fff;
+  padding: 8px 10px;
+  font-weight: 750
+}
+
+.skill-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+  outline: none
+}
+
+.skill-map-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #f7f7fb;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700
+}
+
+.skill-save-bar {
+  position: sticky;
+  bottom: 14px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: var(--shadow)
+}
+
+.skill-save-bar span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700
 }
 
 .form-inline-panel h2 {
@@ -1097,7 +1206,15 @@ body {
   margin: 18px 0
 }
 
+.constraint-search {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 10px;
+  margin: 18px 0
+}
+
 .skill-search input,
+.constraint-search input,
 .skill-search select {
   width: 100%;
   border: 1px solid #d9deea;
@@ -1249,7 +1366,8 @@ body {
     grid-template-columns: repeat(4, 1fr)
   }
 
-  .skill-search {
+  .skill-search,
+  .constraint-search {
     grid-template-columns: 1fr 1fr
   }
 

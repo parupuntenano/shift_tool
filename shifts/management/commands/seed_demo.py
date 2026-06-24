@@ -95,6 +95,7 @@ class Command(BaseCommand):
                     "operator": operator,
                     "description": description,
                     "default_is_hard": default_is_hard,
+                    "default_strength": 10 if default_is_hard else 5,
                 },
             )
         User = get_user_model()
@@ -183,6 +184,7 @@ class Command(BaseCommand):
             defaults={
                 "kind": "max_consecutive",
                 "is_hard": True,
+                "strength": 10,
                 "parameters": {"days": 3},
             },
         )

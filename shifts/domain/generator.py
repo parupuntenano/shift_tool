@@ -468,6 +468,9 @@ class MonthlyShiftGenerator:
                 violated = other_staff in assigned_same_work
             elif rule.staff_id is not None and rule.staff_id != staff_id:
                 continue
+            elif rule.operator == "max_consecutive":
+                limit = rule.numeric_value or 6
+                violated = cls._consecutive_days(staff_id, current, assignments) >= limit
             elif rule.operator == "work_alternation" and work_id in rule.work_ids:
                 previous = cls._last_work_in(staff_id, rule.work_ids, assignments)
                 violated = previous == work_id
@@ -493,23 +496,86 @@ class MonthlyShiftGenerator:
                 pattern = cls._work_rest_pattern(rule.text_value)
                 if pattern:
                     violated = not pattern[(current.day - 1) % len(pattern)]
-            if violated and rule.is_hard:
+            if violated and cls._is_blocking_rule(rule):
                 return False, penalty
             if violated:
-                penalty += cls._soft_penalty(rule.operator)
+                penalty += cls._soft_penalty(rule.operator, rule)
         return True, penalty
 
-    @staticmethod
-    def _soft_penalty(operator: str) -> int:
+    @classmethod
+    def _soft_penalty(cls, operator: str, rule: ConstraintRule) -> int:
         if operator == "work_rest_pattern":
-            return 20
-        if operator == "work_alternation":
+            base_penalty = 20
+        elif operator == "work_alternation":
+            base_penalty = 80
+        elif operator in {"avoid_same_work", "avoid_specific_work"}:
+            base_penalty = 60
+        elif operator == "no_single_rest":
+            base_penalty = 70
+        else:
+            base_penalty = 100
+
+        # 強度5を従来のSoft相当として、1〜9で弱〜強のペナルティに変換する。
+        return max(1, round(base_penalty * cls._rule_strength(rule) / 5))
+
+    @staticmethod
+    def _rule_strength(rule: ConstraintRule) -> int:
+        if rule.strength is not None:
+            return min(10, max(1, rule.strength))
+        return 10 if rule.is_hard else 5
+
+    @classmethod
+    def _is_blocking_rule(cls, rule: ConstraintRule) -> bool:
+        return cls._rule_strength(rule) >= 10
+
+    @classmethod
+    def _alternation_reward(cls, rule: ConstraintRule) -> int:
+        if cls._is_blocking_rule(rule):
             return 80
-        if operator in {"avoid_same_work", "avoid_specific_work"}:
-            return 60
-        if operator == "no_single_rest":
-            return 70
-        return 100
+        return max(1, round(55 * cls._rule_strength(rule) / 5))
+
+    @staticmethod
+    def _effective_priority(rating: SkillRating) -> int:
+        if rating.assignable and rating.priority >= 90:
+            return 4
+        return rating.priority
+
+    @staticmethod
+    def _work_rest_pattern(value):
+        try:
+            counts = [
+                int(part.strip())
+                for part in value.replace("、", ",").split(",")
+                if part.strip()
+            ]
+        except ValueError:
+            return ()
+        pattern = []
+        working = True
+        for count in counts:
+            if count < 1:
+                return ()
+            pattern.extend([working] * count)
+            working = not working
+        return tuple(pattern)
+
+    @staticmethod
+    def _last_work_in(staff_id, work_ids, assignments):
+        for item in reversed(assignments):
+            if item.staff_id == staff_id and (not work_ids or item.work_id in work_ids):
+                return item.work_id
+        return None
+
+    @staticmethod
+    def _consecutive_days(
+        staff_id: int, current: date, assignments: list[Assignment]
+    ) -> int:
+        worked = {item.day for item in assignments if item.staff_id == staff_id}
+        count, target = 0, current - timedelta(days=1)
+        while target in worked:
+            count += 1
+            target -= timedelta(days=1)
+        return count
 
     @classmethod
     def _eligible_count(
@@ -565,48 +631,5 @@ class MonthlyShiftGenerator:
                 continue
             previous = cls._last_work_in(staff_id, rule.work_ids, assignments)
             if previous and previous != work_id:
-                bonus -= 80 if rule.is_hard else 55
+                bonus -= cls._alternation_reward(rule)
         return bonus
-
-    @staticmethod
-    def _effective_priority(rating: SkillRating) -> int:
-        if rating.assignable and rating.priority >= 90:
-            return 4
-        return rating.priority
-
-    @staticmethod
-    def _work_rest_pattern(value):
-        try:
-            counts = [
-                int(part.strip())
-                for part in value.replace("、", ",").split(",")
-                if part.strip()
-            ]
-        except ValueError:
-            return ()
-        pattern = []
-        working = True
-        for count in counts:
-            if count < 1:
-                return ()
-            pattern.extend([working] * count)
-            working = not working
-        return tuple(pattern)
-
-    @staticmethod
-    def _last_work_in(staff_id, work_ids, assignments):
-        for item in reversed(assignments):
-            if item.staff_id == staff_id and (not work_ids or item.work_id in work_ids):
-                return item.work_id
-        return None
-
-    @staticmethod
-    def _consecutive_days(
-        staff_id: int, current: date, assignments: list[Assignment]
-    ) -> int:
-        worked = {item.day for item in assignments if item.staff_id == staff_id}
-        count, target = 0, current - timedelta(days=1)
-        while target in worked:
-            count += 1
-            target -= timedelta(days=1)
-        return count

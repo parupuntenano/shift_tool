@@ -18,6 +18,26 @@
 
   <div class="content-grid">
     <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>登録済み制約の検索</h2>
+          <p>スタッフ名または社員番号で絞り込めます。</p>
+        </div>
+        <span class="result-count">{{ items|length }}件</span>
+      </div>
+      <form method="get" class="constraint-search">
+        <div class="search-keyword">
+          <i class="bi bi-search"></i>
+          <input type="search"
+                 name="q"
+                 value="{{ query }}"
+                 placeholder="スタッフ名・社員番号で検索">
+        </div>
+        <button class="btn btn-primary">検索</button>
+        {% if query %}
+          <a class="btn btn-light" href="{% url 'constraint_manage' %}">クリア</a>
+        {% endif %}
+      </form>
       <div class="table-responsive">
         <table class="table align-middle">
           <thead>
@@ -33,7 +53,14 @@
           <tbody>
             {% for item in items %}
               <tr>
-                <td>{{ item.staff.name|default:'全スタッフ' }}</td>
+                <td>
+                  {% if item.staff %}
+                    <strong>{{ item.staff.name }}</strong>
+                    <small class="d-block text-muted">{{ item.staff.employee_number }}</small>
+                  {% else %}
+                    全スタッフ
+                  {% endif %}
+                </td>
                 <td class="fw-bold">{{ item.name }}</td>
                 <td>
                   {% if item.rule_type %}
@@ -80,12 +107,13 @@
                   {% endif %}
                 </td>
                 <td>
-                  <span class="status {% if item.is_hard %}warning{% endif %}">
-                    {{ item.is_hard|yesno:'Hard,Soft' }}
+                  <span class="status {{ item.strength_class }}">
+                    強度{{ item.strength }}・{{ item.strength_label }}
                   </span>
                 </td>
                 <td class="actions">
-                  <a class="btn btn-sm btn-outline-primary" href="{% url 'constraint_edit' item.pk %}">
+                  <a class="btn btn-sm btn-outline-primary"
+                     href="{% url 'constraint_edit' item.pk %}{% if query %}?q={{ query|urlencode }}{% endif %}">
                     <i class="bi bi-pencil"></i>
                   </a>
                   <a class="btn btn-sm btn-outline-danger" href="{% url 'constraint_delete' item.pk %}">
@@ -95,7 +123,13 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="6" class="empty">制約条件が未登録です。</td>
+                <td colspan="6" class="empty">
+                  {% if query %}
+                    「{{ query }}」に一致するスタッフの制約条件はありません。
+                  {% else %}
+                    制約条件が未登録です。
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
           </tbody>
@@ -118,14 +152,18 @@
         <small>特定業務条件：スタッフ・対象業務A</small>
         <small>曜日別禁止：対象曜日・必要なら業務A/B</small>
         <small>最大連続勤務：スタッフ・数値設定</small>
+        <small>強度10：絶対守る / 8〜9：強め / 5〜7：標準 / 1〜4：弱め</small>
       </div>
-      <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary w-100">
-        {% if editing_item %}
-          更新する
-        {% else %}
-          登録する
-        {% endif %}
-      </button>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="btn btn-primary w-100">
+          {% if editing_item %}
+            更新する
+          {% else %}
+            登録する
+          {% endif %}
+        </button>
         {% if editing_item %}
           <a class="btn btn-light w-100 mt-2" href="{% url 'constraint_manage' %}">キャンセル</a>
         {% endif %}

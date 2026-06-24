@@ -14,30 +14,109 @@
         <i class="bi bi-file-earmark-arrow-up"></i> ファイル取込</a>
     </div>
   </header>
-  <div class="panel form-inline-panel mb-4">
-    <h2>スキルを設定・変更</h2>
-    <form method="post" class="row g-3 align-items-end">
-      {% csrf_token %}
-      <div class="col-md">{{ form.staff.label_tag }}{{ form.staff }}</div>
-      <div class="col-md">{{ form.work_type.label_tag }}{{ form.work_type }}</div>
-      <div class="col-md">{{ form.level.label_tag }}{{ form.level }}</div>
-      <div class="col-md-auto">
-        <button class="btn btn-primary">保存する</button>
-      </div>
-    </form>
-  </div>
   <section class="panel">
     <div class="panel-head">
       <div>
-        <h2>登録済みスキルの検索・削除</h2>
-        <p>条件で絞り込み、複数件をまとめて削除できます。</p>
+        <h2>スキルマップ一括編集</h2>
+        <p>スタッフごとのスキルを一覧のプルダウンから直接変更できます。</p>
       </div>
-      <span class="result-count">{{ skill_entries|length }}件</span>
+      <span class="result-count" id="matrix-result-count">{{ staff_rows|length }}名</span>
     </div>
-    <form method="get" class="skill-search">
+    <form method="get" class="skill-search" id="matrix-search-form">
+      {% if delete_query %}
+        <input type="hidden" name="delete_q" value="{{ delete_query }}">
+      {% endif %}
+      {% if work_filter %}
+        <input type="hidden" name="work" value="{{ work_filter }}">
+      {% endif %}
+      {% if level_filter %}
+        <input type="hidden" name="level" value="{{ level_filter }}">
+      {% endif %}
       <div class="search-keyword">
         <i class="bi bi-search"></i>
-        <input type="search" name="q" value="{{ query }}" placeholder="社員番号・氏名・業務名・スキルで検索">
+        <input type="search" name="matrix_q" value="{{ matrix_query }}" placeholder="社員番号・氏名で検索">
+      </div>
+      <button class="btn btn-primary">検索</button>
+      <button class="btn btn-light" type="button" id="matrix-clear-button" {% if not matrix_query %}hidden{% endif %}>クリア</button>
+    </form>
+
+    <form method="post" class="skill-map-edit">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="update_matrix">
+      <div class="skill-map-note">
+        <i class="bi bi-info-circle"></i>
+        空欄を選ぶと、その業務のスキル設定は未設定に戻ります。
+      </div>
+      <div class="table-responsive skill-map-scroll">
+        <table class="table skill-table align-middle">
+          <thead>
+            <tr>
+              <th class="sticky-col">スタッフ</th>
+              {% for work in works %}
+                <th>{{ work.name }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in staff_rows %}
+              <tr data-matrix-row data-search="{{ row.staff.employee_number }} {{ row.staff.name }}">
+                <td class="sticky-col">
+                  <small>{{ row.staff.employee_number }}</small>
+                  <strong>{{ row.staff.name }}</strong>
+                </td>
+                {% for cell in row.cells %}
+                  <td>
+                    <select class="skill-select"
+                            name="{{ cell.field_name }}"
+                            aria-label="{{ row.staff.name }} {{ cell.work.name }}のスキル">
+                      <option value="">—</option>
+                      {% for level in skill_levels %}
+                        <option value="{{ level.pk }}"
+                                {% if cell.level and cell.level.pk == level.pk %}
+                                  selected
+                                {% endif %}
+                        >{{ level.symbol }} {{ level.meaning }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                {% endfor %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="99" class="empty">条件に一致するスタッフはいません。</td>
+              </tr>
+            {% endfor %}
+            <tr class="client-empty" id="matrix-empty-row" hidden>
+              <td colspan="99" class="empty">条件に一致するスタッフはいません。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="skill-save-bar">
+        <span>変更したら最後に保存してください。</span>
+        <button class="btn btn-primary">
+          <i class="bi bi-save"></i>
+          スキルマップを保存
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel mt-4">
+    <div class="panel-head">
+      <div>
+        <h2>登録済みスキルの削除</h2>
+        <p>条件で絞り込み、複数件をまとめて削除できます。</p>
+      </div>
+      <span class="result-count" id="delete-result-count">{{ skill_entries|length }}件</span>
+    </div>
+    <form method="get" class="skill-search" id="delete-search-form">
+      {% if matrix_query %}
+        <input type="hidden" name="matrix_q" value="{{ matrix_query }}">
+      {% endif %}
+      <div class="search-keyword">
+        <i class="bi bi-search"></i>
+        <input type="search" name="delete_q" value="{{ delete_query }}" placeholder="社員番号・氏名・業務名・スキルで検索">
       </div>
       <select name="work" aria-label="業務で絞り込み">
         <option value="">すべての業務</option>
@@ -60,9 +139,7 @@
         {% endfor %}
       </select>
       <button class="btn btn-primary">検索</button>
-      {% if query or work_filter or level_filter %}
-        <a class="btn btn-light" href="{% url 'skill_map' %}">クリア</a>
-      {% endif %}
+      <button class="btn btn-light" type="button" id="delete-clear-button" {% if not delete_query and not work_filter and not level_filter %}hidden{% endif %}>クリア</button>
     </form>
     <form method="post"
           action="{% url 'staff_skill_bulk_delete' %}"
@@ -96,7 +173,10 @@
           </thead>
           <tbody>
             {% for item in skill_entries %}
-              <tr>
+              <tr data-delete-row
+                  data-search="{{ item.staff.employee_number }} {{ item.staff.name }} {{ item.work_type.name }} {{ item.level.symbol }} {{ item.level.meaning }}"
+                  data-work="{{ item.work_type.pk }}"
+                  data-level="{{ item.level.pk }}">
                 <td>
                   <input class="skill-checkbox" type="checkbox" name="skill_ids" value="{{ item.pk }}" aria-label="{{ item.staff.name }} {{ item.work_type.name }}を選択">
                 </td>
@@ -116,68 +196,129 @@
                 <td colspan="6" class="empty">条件に一致するスキル設定はありません。</td>
               </tr>
             {% endfor %}
+            <tr class="client-empty" id="delete-empty-row" hidden>
+              <td colspan="6" class="empty">条件に一致するスキル設定はありません。</td>
+            </tr>
           </tbody>
         </table>
       </div>
     </form>
   </section>
-  <details class="panel skill-map-details mt-4">
-    <summary>
-      <span>
-        <i class="bi bi-grid-3x3-gap"></i> スキルマップ全体を表示</span>
-      <small>スタッフ×業務の一覧</small>
-    </summary>
-    <div class="table-responsive mt-3">
-      <table class="table skill-table align-middle">
-        <thead>
-          <tr>
-            <th class="sticky-col">スタッフ</th>
-            {% for work in works %}
-              <th>{{ work.name }}</th>
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in staff_rows %}
-            <tr>
-              <td class="sticky-col">
-                <small>{{ row.staff.employee_number }}</small>
-                <strong>{{ row.staff.name }}</strong>
-              </td>
-              {% for level in row.cells %}
-                <td>
-                  {% if level %}
-                    <span class="skill-symbol" title="{{ level.meaning }}">{{ level.symbol }}</span>
-                  {% else %}
-                    <span class="text-muted">—</span>
-                  {% endif %}
-                </td>
-              {% endfor %}
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="99" class="empty">スタッフが未登録です。</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
   <script>
     (() => {
+      const normalize = value => (value || '').trim().toLowerCase();
+
+      const setupMatrixSearch = () => {
+        const form = document.getElementById('matrix-search-form');
+        const input = form?.querySelector('[name="matrix_q"]');
+        const clear = document.getElementById('matrix-clear-button');
+        const rows = [...document.querySelectorAll('[data-matrix-row]')];
+        const count = document.getElementById('matrix-result-count');
+        const empty = document.getElementById('matrix-empty-row');
+        if (!form || !input || !count || !empty) return;
+
+        const filter = () => {
+          const keyword = normalize(input.value);
+          let visible = 0;
+
+          rows.forEach(row => {
+            const matched = !keyword || normalize(row.dataset.search).includes(keyword);
+            row.hidden = !matched;
+            if (matched) visible += 1;
+          });
+
+          count.textContent = `${visible}名`;
+          empty.hidden = visible !== 0;
+          if (clear) clear.hidden = !keyword;
+        };
+
+        form.addEventListener('submit', event => {
+          event.preventDefault();
+          filter();
+        });
+        input.addEventListener('input', filter);
+        clear?.addEventListener('click', () => {
+          input.value = '';
+          filter();
+          input.focus();
+        });
+        filter();
+      };
+
+      const setupDeleteSearch = () => {
+        const form = document.getElementById('delete-search-form');
+        const keywordInput = form?.querySelector('[name="delete_q"]');
+        const workSelect = form?.querySelector('[name="work"]');
+        const levelSelect = form?.querySelector('[name="level"]');
+        const clear = document.getElementById('delete-clear-button');
+        const rows = [...document.querySelectorAll('[data-delete-row]')];
+        const count = document.getElementById('delete-result-count');
+        const empty = document.getElementById('delete-empty-row');
+        if (!form || !keywordInput || !workSelect || !levelSelect || !count || !empty) return;
+
+        const filter = () => {
+          const keyword = normalize(keywordInput.value);
+          const work = workSelect.value;
+          const level = levelSelect.value;
+          let visible = 0;
+
+          rows.forEach(row => {
+            const matchedKeyword = !keyword || normalize(row.dataset.search).includes(keyword);
+            const matchedWork = !work || row.dataset.work === work;
+            const matchedLevel = !level || row.dataset.level === level;
+            const matched = matchedKeyword && matchedWork && matchedLevel;
+            row.hidden = !matched;
+            if (!matched) row.querySelector('.skill-checkbox')?.checked = false;
+            if (matched) visible += 1;
+          });
+
+          count.textContent = `${visible}件`;
+          empty.hidden = visible !== 0;
+          if (clear) clear.hidden = !keyword && !work && !level;
+          window.updateSkillBulkSelection?.();
+        };
+
+        form.addEventListener('submit', event => {
+          event.preventDefault();
+          filter();
+        });
+        keywordInput.addEventListener('input', filter);
+        workSelect.addEventListener('change', filter);
+        levelSelect.addEventListener('change', filter);
+        clear?.addEventListener('click', () => {
+          keywordInput.value = '';
+          workSelect.value = '';
+          levelSelect.value = '';
+          filter();
+          keywordInput.focus();
+        });
+        filter();
+      };
+
       const all = document.getElementById('select-all-skills');
       const boxes = [...document.querySelectorAll('.skill-checkbox')];
       const count = document.getElementById('selected-count');
       const button = document.getElementById('bulk-delete-button');
       const update = () => {
-        const selected = boxes.filter(box => box.checked).length;
+        if (!all || !count || !button) return;
+        const visibleBoxes = boxes.filter(box => !box.closest('[data-delete-row]')?.hidden);
+        const selected = visibleBoxes.filter(box => box.checked).length;
         count.textContent = `${selected}件選択`;
         button.disabled = selected === 0;
-        all.checked = boxes.length > 0 && selected === boxes.length;
-        all.indeterminate = selected > 0 && selected < boxes.length;
+        all.disabled = visibleBoxes.length === 0;
+        all.checked = visibleBoxes.length > 0 && selected === visibleBoxes.length;
+        all.indeterminate = selected > 0 && selected < visibleBoxes.length;
       };
-      all.addEventListener('change', () => { boxes.forEach(box => box.checked = all.checked); update(); });
+      window.updateSkillBulkSelection = update;
+      all?.addEventListener('change', () => {
+        boxes.forEach(box => {
+          if (!box.closest('[data-delete-row]')?.hidden) box.checked = all.checked;
+        });
+        update();
+      });
       boxes.forEach(box => box.addEventListener('change', update));
+      setupMatrixSearch();
+      setupDeleteSearch();
       update();
     })();
   </script>

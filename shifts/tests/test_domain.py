@@ -105,6 +105,80 @@ class MonthlyShiftGeneratorTests(TestCase):
             any(item.day == month and item.work_id == 10 for item in result.warnings)
         )
 
+    def test_strength_10_blocks_assignment_even_when_is_hard_is_false(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "A")]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [Availability(1, month, True)]
+        rules = [
+            ConstraintRule(
+                "forbid_specific_work",
+                staff_id=1,
+                work_ids=(10,),
+                is_hard=False,
+                strength=10,
+            )
+        ]
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability, rules
+        )
+        self.assertFalse(any(item.day == month for item in result.assignments))
+
+    def test_strength_below_10_is_soft_penalty(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "A")]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [Availability(1, month, True)]
+        rules = [
+            ConstraintRule(
+                "forbid_specific_work",
+                staff_id=1,
+                work_ids=(10,),
+                is_hard=True,
+                strength=5,
+            )
+        ]
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability, rules
+        )
+        self.assertTrue(any(item.day == month for item in result.assignments))
+
+    def test_max_consecutive_uses_strength_as_soft_or_hard(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "A", max_consecutive_days=10)]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [
+            Availability(1, month.replace(day=1), True),
+            Availability(1, month.replace(day=2), True),
+        ]
+        soft_result = MonthlyShiftGenerator().generate(
+            month,
+            staff,
+            works,
+            skills,
+            availability,
+            [ConstraintRule("max_consecutive", staff_id=1, numeric_value=1, strength=5)],
+        )
+        hard_result = MonthlyShiftGenerator().generate(
+            month,
+            staff,
+            works,
+            skills,
+            availability,
+            [ConstraintRule("max_consecutive", staff_id=1, numeric_value=1, strength=10)],
+        )
+        self.assertEqual(
+            [item.day.day for item in soft_result.assignments if item.day.day <= 2],
+            [1, 2],
+        )
+        self.assertEqual(
+            [item.day.day for item in hard_result.assignments if item.day.day <= 2],
+            [1],
+        )
+
     def test_applies_work_rest_pattern(self):
         month = date(2026, 2, 1)
         staff = [StaffMember(1, "A")]

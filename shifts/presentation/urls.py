@@ -57,6 +57,16 @@ urlpatterns = [
         views.staff_skill_bulk_delete,
         name="staff_skill_bulk_delete",
     ),
+    path(
+        "manager/import/template/",
+        views.download_import_template,
+        name="download_import_template",
+    ),
+    path(
+        "manager/import/sample/",
+        views.download_import_sample,
+        name="download_import_sample",
+    ),
     path("manager/import/", views.import_skill_map, name="import_skill_map"),
     path("manager/shifts/", views.shift_manage, name="shift_manage"),
     path("manager/shifts/generate/", views.generate_shift, name="generate_shift"),
