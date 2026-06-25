@@ -42,6 +42,7 @@ from shifts.infrastructure.models import (
 from shifts.infrastructure.repositories import DjangoShiftRepository
 from .company import admin_required, current_membership, staff_required
 from .forms import (
+    BulkDesiredOffLimitForm,
     ConstraintForm,
     ConstraintTypeForm,
     GenerateForm,
@@ -186,6 +187,10 @@ def manager_dashboard(request):
     latest_period = ShiftPeriod.objects.filter(
         company=request.company, month=month
     ).first()
+    pending_leave_requests = ShiftLeaveRequest.objects.filter(
+        period__company=request.company,
+        status=ShiftLeaveRequest.Status.PENDING,
+    ).select_related("period", "staff", "work_type")
     context = {
         "month": month,
         "current_month": current_month,
@@ -200,6 +205,8 @@ def manager_dashboard(request):
             latest_period.get_status_display() if latest_period else "未生成"
         ),
         "latest_period": latest_period,
+        "pending_leave_requests": pending_leave_requests[:8],
+        "pending_leave_request_count": pending_leave_requests.count(),
         "recent_periods": ShiftPeriod.objects.filter(company=request.company).annotate(
             assignment_count=Count("assignments")
         )[:5],
@@ -210,22 +217,38 @@ def manager_dashboard(request):
 @login_required
 @admin_required
 def staff_manage(request):
-    form = StaffForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        staff = form.save_for_company(request.company)
-        if staff.user:
-            CompanyMembership.objects.update_or_create(
-                company=request.company,
-                user=staff.user,
-                defaults={"role": CompanyMembership.Role.STAFF},
+    form = StaffForm()
+    bulk_limit_form = BulkDesiredOffLimitForm()
+    if request.method == "POST" and request.POST.get("action") == "bulk_limit":
+        bulk_limit_form = BulkDesiredOffLimitForm(request.POST)
+        if bulk_limit_form.is_valid():
+            limit = bulk_limit_form.cleaned_data["desired_off_limit"]
+            count = Staff.objects.filter(company=request.company).update(
+                desired_off_limit=limit
             )
-        messages.success(request, "スタッフを登録しました。")
-        return redirect("staff_manage")
+            messages.success(
+                request,
+                f"公有給希望上限を{limit}日に変更しました。（{count}名へ反映）",
+            )
+            return redirect("staff_manage")
+    elif request.method == "POST":
+        form = StaffForm(request.POST)
+        if form.is_valid():
+            staff = form.save_for_company(request.company)
+            if staff.user:
+                CompanyMembership.objects.update_or_create(
+                    company=request.company,
+                    user=staff.user,
+                    defaults={"role": CompanyMembership.Role.STAFF},
+                )
+            messages.success(request, "スタッフを登録しました。")
+            return redirect("staff_manage")
     return render(
         request,
         "shifts/staff_manage.html",
         {
             "form": form,
+            "bulk_limit_form": bulk_limit_form,
             "items": Staff.objects.filter(company=request.company).select_related(
                 "user"
             ),
@@ -238,6 +261,7 @@ def staff_manage(request):
 def staff_edit(request, pk):
     item = get_object_or_404(Staff, pk=pk, company=request.company)
     form = StaffForm(request.POST or None, instance=item)
+    bulk_limit_form = BulkDesiredOffLimitForm()
     if request.method == "POST" and form.is_valid():
         staff = form.save_for_company(request.company)
         if staff.user:
@@ -253,6 +277,7 @@ def staff_edit(request, pk):
         "shifts/staff_manage.html",
         {
             "form": form,
+            "bulk_limit_form": bulk_limit_form,
             "items": Staff.objects.filter(company=request.company).select_related(
                 "user"
             ),
@@ -699,11 +724,11 @@ def _skill_import_template_workbook(company):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "スキル表"
-    headers = ["社員番号", "氏名", "備考"]
+    headers = ["社員番号", "氏名", "公休数", "希望上限", "備考"]
     sample_rows = [
-        ["S001", "青木 太郎", "4勤不可;単休不可"],
-        ["S002", "田中 花子", "業務Aと業務B交互;業務A連続不可"],
-        ["S003", "佐藤 次郎", "業務B禁止"],
+        ["S001", "青木 太郎", 8, 4, "4勤不可;単休不可"],
+        ["S002", "田中 花子", 8, 4, "業務Aと業務B交互;業務A連続不可"],
+        ["S003", "佐藤 次郎", 9, 5, "業務B禁止"],
     ]
 
     header_fill = PatternFill("solid", fgColor="1F4E78")
@@ -719,7 +744,7 @@ def _skill_import_template_workbook(company):
     for sample in sample_rows:
         sheet.append(sample)
 
-    for cell in sheet["C"][1:]:
+    for cell in sheet["E"][1:]:
         cell.fill = note_fill
         cell.alignment = Alignment(wrap_text=True, vertical="top")
 
@@ -727,6 +752,8 @@ def _skill_import_template_workbook(company):
         width = 14
         if header == "氏名":
             width = 18
+        elif header in {"公休数", "希望上限"}:
+            width = 12
         elif header == "備考":
             width = 42
         sheet.column_dimensions[get_column_letter(column_index)].width = width
@@ -755,7 +782,7 @@ def _skill_import_template_workbook(company):
         level_sheet.column_dimensions[get_column_letter(column_index)].width = width
 
     work_sheet = workbook.create_sheet("業務マスタ")
-    work_headers = ["業務名", "最低必要人数", "有効"]
+    work_headers = ["業務名", "必要人数", "有効"]
     work_sheet.append(work_headers)
     for cell in work_sheet[1]:
         cell.fill = header_fill
@@ -783,9 +810,11 @@ def _skill_import_template_workbook(company):
         ["項目", "入力内容"],
         ["社員番号", "ログインIDにも使う番号です。必須です。"],
         ["氏名", "スタッフ名です。必須です。"],
+        ["公休数", "スタッフごとの月公休数です。スタッフ管理へ反映します。"],
+        ["希望上限", "公休希望と有給希望を合わせて申請できる上限日数です。"],
         ["備考", "個別制約にしたい条件を書きます。複数ある場合は ; で区切れます。"],
-        ["業務マスタ", "業務名・最低必要人数・有効を入力します。取込時に業務管理へ反映します。"],
-        ["業務列", "スキル表のD列以降には、業務マスタと同じ業務名を見出しとして追加します。"],
+        ["業務マスタ", "業務名・必要人数・有効を入力します。取込時に業務管理へ反映します。"],
+        ["業務列", "スキル表の公休数・希望上限・備考の後ろには、業務マスタと同じ業務名を見出しとして追加します。"],
         ["スキル区分", "スキル区分シートの記号・意味・優先度・アサイン可を取込時に自動設定します。"],
         ["備考例", "2勤1休 / 4勤不可 / 単休不可"],
         ["備考例", "業務Aと業務B交互 / 業務A連続不可 / 業務B禁止"],
@@ -812,18 +841,18 @@ def _skill_import_sample_workbook():
 
     sheet = workbook.active
     sheet.title = "スキル表"
-    headers = ["社員番号", "氏名", "備考", "受付", "ロール", "エーカス"]
+    headers = ["社員番号", "氏名", "公休数", "希望上限", "備考", "受付", "ロール", "エーカス"]
     sample_rows = [
-        ["S001", "青木 太郎", "単休不可", "◎", "○", "△"],
-        ["S002", "田中 花子", "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
-        ["S003", "佐藤 次郎", "受付禁止", "×", "○", "◎"],
-        ["S004", "鈴木 花", "4勤不可", "◎", "△", "○"],
-        ["S005", "高橋 健", "エーカス連続不可", "○", "◎", "○"],
-        ["S006", "伊藤 美咲", "ロール禁止", "◎", "×", "○"],
-        ["S007", "渡辺 翔", "2勤1休", "△", "◎", "○"],
-        ["S008", "山本 葵", "単休不可", "○", "○", "◎"],
-        ["S009", "中村 優", "受付とロール交互", "◎", "◎", "△"],
-        ["S010", "小林 陸", "", "○", "△", "◎"],
+        ["S001", "青木 太郎", 8, 4, "単休不可", "◎", "○", "△"],
+        ["S002", "田中 花子", 8, 4, "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
+        ["S003", "佐藤 次郎", 8, 4, "受付禁止", "×", "○", "◎"],
+        ["S004", "鈴木 花", 9, 5, "4勤不可", "◎", "△", "○"],
+        ["S005", "高橋 健", 8, 4, "エーカス連続不可", "○", "◎", "○"],
+        ["S006", "伊藤 美咲", 8, 4, "ロール禁止", "◎", "×", "○"],
+        ["S007", "渡辺 翔", 10, 5, "2勤1休", "△", "◎", "○"],
+        ["S008", "山本 葵", 8, 4, "単休不可", "○", "○", "◎"],
+        ["S009", "中村 優", 8, 4, "受付とロール交互", "◎", "◎", "△"],
+        ["S010", "小林 陸", 8, 4, "", "○", "△", "◎"],
     ]
 
     sheet.append(headers)
@@ -835,16 +864,16 @@ def _skill_import_sample_workbook():
     for row in sample_rows:
         sheet.append(row)
 
-    for cell in sheet["C"][1:]:
+    for cell in sheet["E"][1:]:
         cell.fill = note_fill
         cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    for row in sheet.iter_rows(min_row=2, min_col=4, max_col=6):
+    for row in sheet.iter_rows(min_row=2, min_col=6, max_col=8):
         for cell in row:
             cell.fill = skill_fill
             cell.alignment = Alignment(horizontal="center")
 
-    for column_index, width in enumerate((14, 18, 42, 12, 12, 12), start=1):
+    for column_index, width in enumerate((14, 18, 12, 12, 42, 12, 12, 12), start=1):
         sheet.column_dimensions[get_column_letter(column_index)].width = width
     sheet.freeze_panes = "A2"
 
@@ -865,7 +894,7 @@ def _skill_import_sample_workbook():
         level_sheet.column_dimensions[get_column_letter(column_index)].width = width
 
     work_sheet = workbook.create_sheet("業務マスタ")
-    work_sheet.append(["業務名", "最低必要人数", "有効"])
+    work_sheet.append(["業務名", "必要人数", "有効"])
     for cell in work_sheet[1]:
         cell.fill = header_fill
         cell.font = header_font
@@ -884,9 +913,11 @@ def _skill_import_sample_workbook():
         ["項目", "入力内容"],
         ["このファイルの目的", "取込テスト用のサンプルです。スタッフ10人・業務3つを登録できます。"],
         ["社員番号", "取込後のログインIDにも使われます。初期パスワードは 0000 です。"],
+        ["公休数", "スタッフごとの月公休数です。スタッフ管理へ反映します。"],
+        ["希望上限", "公休希望と有給希望を合わせて申請できる上限日数です。"],
         ["備考", "個別制約へ自動変換される条件の例を入れています。不要なら空欄で問題ありません。"],
-        ["業務マスタ", "業務名・最低必要人数・有効を業務管理へ反映します。"],
-        ["スキル表", "D列以降の業務名とセルの記号から、スタッフごとのスキルを登録します。"],
+        ["業務マスタ", "業務名・必要人数・有効を業務管理へ反映します。"],
+        ["スキル表", "公休数・希望上限・備考の後ろの業務名とセルの記号から、スタッフごとのスキルを登録します。"],
         ["スキル区分", "記号の意味・優先度・アサイン可否を登録します。"],
     ]
     for row in guide_rows:
@@ -1023,6 +1054,14 @@ def _period_rows(period):
             status=ShiftLeaveRequest.Status.REJECTED
         ).select_related("work_type")
     }
+    paid_leave_days = defaultdict(set)
+    for item in AvailabilityDay.objects.filter(
+        submission__staff__company=period.company,
+        submission__month=period.month,
+        paid_leave=True,
+    ):
+        paid_leave_days[item.submission.staff_id].add(item.day)
+    day_count = len(days)
     rows = []
     for staff in staff_list:
         cells = [
@@ -1035,15 +1074,91 @@ def _period_rows(period):
             for day in days
         ]
         work_count = sum(1 for cell in cells if cell["assignment"])
+        rest_count = day_count - work_count
+        staff_paid_leave_days = paid_leave_days[staff.id]
+        paid_leave_count = sum(
+            1
+            for cell in cells
+            if not cell["assignment"] and cell["day"]["date"] in staff_paid_leave_days
+        )
+        public_holiday_count = max(rest_count - paid_leave_count, 0)
+        public_holiday_target = staff.monthly_public_holidays
+        expected_total = work_count + public_holiday_count + paid_leave_count
+        public_holiday_status = (
+            "ok"
+            if public_holiday_count == public_holiday_target
+            else "under"
+            if public_holiday_count < public_holiday_target
+            else "over"
+        )
+        expected_total_status = (
+            "ok"
+            if expected_total == day_count
+            else "under"
+            if expected_total < day_count
+            else "over"
+        )
         rows.append(
             {
                 "staff": staff,
                 "cells": cells,
                 "work_count": work_count,
-                "rest_count": len(days) - work_count,
+                "rest_count": rest_count,
+                "public_holiday_count": public_holiday_count,
+                "public_holiday_target": public_holiday_target,
+                "public_holiday_status": public_holiday_status,
+                "public_holiday_status_label": (
+                    "不足" if public_holiday_status == "under" else "超過"
+                    if public_holiday_status == "over"
+                    else ""
+                ),
+                "paid_leave_count": paid_leave_count,
+                "expected_total": expected_total,
+                "expected_total_status": expected_total_status,
+                "expected_total_status_label": (
+                    "不足" if expected_total_status == "under" else "超過"
+                    if expected_total_status == "over"
+                    else ""
+                ),
             }
         )
     return days, rows
+
+
+def _attach_shift_statistics(rows, days, works):
+    # シフト表の右側・下部に出す集計値を作る。
+    # 右側: スタッフごとの業務別回数
+    # 下部: 日ごとの業務別人数
+    daily_stats = [
+        {
+            "work": work,
+            "counts": [0 for _day in days],
+            "total": 0,
+        }
+        for work in works
+    ]
+    daily_stat_map = {item["work"].id: item for item in daily_stats}
+
+    for row in rows:
+        counts = {work.id: 0 for work in works}
+        for index, cell in enumerate(row["cells"]):
+            assignment = cell["assignment"]
+            if not assignment or not assignment.work_type_id:
+                continue
+            if assignment.work_type_id not in counts:
+                continue
+            counts[assignment.work_type_id] += 1
+            daily_stat_map[assignment.work_type_id]["counts"][index] += 1
+            daily_stat_map[assignment.work_type_id]["total"] += 1
+        row["work_summary"] = [
+            {
+                "work": work,
+                "count": counts[work.id],
+            }
+            for work in works
+        ]
+
+    return daily_stats
 
 
 def _shift_edit_support(period, days, rows, works):
@@ -1118,6 +1233,15 @@ def _shift_edit_support(period, days, rows, works):
                     "day": assignment.day,
                     "staff": assignment.staff,
                     "message": f"{work_name}に入っていますが、勤務不可で提出されています。",
+                }
+            )
+        elif request_day and request_day.paid_leave:
+            assignment_issues.append(
+                {
+                    "level": "danger",
+                    "day": assignment.day,
+                    "staff": assignment.staff,
+                    "message": f"{work_name}に入っていますが、有給希望の日です。",
                 }
             )
         elif request_day and request_day.preferred_off:
@@ -1195,7 +1319,8 @@ def _replacement_candidates(period, leave_request):
             submission__staff__company=period.company,
             submission__month=period.month,
             day=leave_request.day,
-            available=False,
+        ).filter(
+            Q(available=False) | Q(preferred_off=True) | Q(paid_leave=True)
         ).values_list("submission__staff_id", flat=True)
     )
     skill_staff_ids = set(
@@ -1258,7 +1383,11 @@ def shift_detail(request, pk):
     period = get_object_or_404(ShiftPeriod, pk=pk, company=request.company)
     days, rows = _period_rows(period)
     works = list(WorkType.objects.filter(company=request.company, active=True))
-    can_edit_shift = period.status == ShiftPeriod.Status.DRAFT
+    daily_work_stats = _attach_shift_statistics(rows, days, works)
+    can_edit_shift = period.status in {
+        ShiftPeriod.Status.DRAFT,
+        ShiftPeriod.Status.PUBLISHED,
+    }
     leave_context = _leave_request_context(period)
     show_shift_support = can_edit_shift or bool(leave_context["leave_requests"])
     return render(
@@ -1269,6 +1398,7 @@ def shift_detail(request, pk):
             "days": days,
             "rows": rows,
             "works": works,
+            "daily_work_stats": daily_work_stats,
             "can_edit_shift": can_edit_shift,
             "show_shift_support": show_shift_support,
             "edit_support": _shift_edit_support(period, days, rows, works),
@@ -1283,8 +1413,11 @@ def shift_detail(request, pk):
 @require_POST
 def update_shift_draft(request, pk):
     period = get_object_or_404(ShiftPeriod, pk=pk, company=request.company)
-    if period.status != ShiftPeriod.Status.DRAFT:
-        messages.error(request, "公開済みのシフトは編集できません。")
+    if period.status not in {
+        ShiftPeriod.Status.DRAFT,
+        ShiftPeriod.Status.PUBLISHED,
+    }:
+        messages.error(request, "まだ作成されていないシフトは編集できません。")
         return redirect("shift_detail", pk=pk)
 
     works = {
@@ -1338,7 +1471,7 @@ def update_shift_draft(request, pk):
                 )
                 changed_count += 1
 
-    messages.success(request, f"下書きシフトを保存しました。（変更{changed_count}件）")
+    messages.success(request, f"シフトを保存しました。（変更{changed_count}件）")
     return redirect("shift_detail", pk=pk)
 
 
@@ -1519,6 +1652,60 @@ def _suggested_off_days_from_constraints(staff, month):
     return suggested
 
 
+def _staff_rest_constraint_notes(staff):
+    # シフト提出時にスタッフ本人へ見せる「休み方」だけの個別制約。
+    # 業務交互・特定業務禁止など、管理者側の割当判断に近い制約はここでは出さない。
+    rest_operators = {
+        ConstraintType.Operator.WORK_REST_PATTERN,
+        ConstraintType.Operator.NO_SINGLE_REST,
+        ConstraintType.Operator.MAX_CONSECUTIVE,
+    }
+    rest_kinds = {
+        IndividualConstraint.Kind.NO_SINGLE_REST,
+        IndividualConstraint.Kind.MAX_CONSECUTIVE,
+    }
+    rules = IndividualConstraint.objects.filter(
+        company=staff.company,
+        staff=staff,
+        active=True,
+    ).select_related("rule_type")
+
+    notes = []
+    for rule in rules:
+        operator = rule.rule_type.operator if rule.rule_type else ""
+        if operator not in rest_operators and rule.kind not in rest_kinds:
+            continue
+
+        label = rule.name.split("：")[-1].split(":")[-1].strip()
+        detail = ""
+        if operator == ConstraintType.Operator.WORK_REST_PATTERN:
+            counts = _parse_work_rest_pattern(rule.text_value)
+            if counts:
+                pairs = [
+                    f"{counts[index]}勤{counts[index + 1]}休"
+                    for index in range(0, len(counts), 2)
+                ]
+                label = "・".join(pairs)
+                detail = "この流れを希望"
+        elif operator == ConstraintType.Operator.NO_SINGLE_REST:
+            label = "単休禁止"
+            detail = "休みを1日だけにせず、できれば連休にする"
+        elif operator == ConstraintType.Operator.MAX_CONSECUTIVE and rule.numeric_value:
+            label = f"{rule.numeric_value}勤超過不可"
+            detail = f"{rule.numeric_value}勤を超えないようにする"
+
+        notes.append(
+            {
+                "label": label,
+                "detail": detail,
+                "strength": rule.strength,
+                "strength_label": rule.strength_label,
+                "strength_class": rule.strength_class,
+            }
+        )
+    return notes
+
+
 @login_required
 @staff_required
 def submit_availability(request):
@@ -1531,6 +1718,17 @@ def submit_availability(request):
     )
     day_count = calendar.monthrange(month.year, month.month)[1]
     if request.method == "POST":
+        requested_off_count = sum(
+            1
+            for number in range(1, day_count + 1)
+            if request.POST.get(f"day_{number}", "available") in {"off", "paid"}
+        )
+        if requested_off_count > request.staff.desired_off_limit:
+            messages.error(
+                request,
+                f"公休希望と有給希望は合計{request.staff.desired_off_limit}日までです。",
+            )
+            return redirect(f"{request.path}?month={month:%Y-%m}")
         for number in range(1, day_count + 1):
             state = request.POST.get(f"day_{number}", "available")
             AvailabilityDay.objects.update_or_create(
@@ -1539,6 +1737,7 @@ def submit_availability(request):
                 defaults={
                     "available": True,
                     "preferred_off": state == "off",
+                    "paid_leave": state == "paid",
                 },
             )
         submission.status = AvailabilitySubmission.Status.SUBMITTED
@@ -1547,18 +1746,23 @@ def submit_availability(request):
         messages.success(request, f"{month.year}年{month.month}月分を提出しました。")
         return redirect(f"{request.path}?month={month:%Y-%m}")
     saved = {
-        item.day.day: ("off" if item.preferred_off else "available")
+        item.day.day: (
+            "paid" if item.paid_leave else "off" if item.preferred_off else "available"
+        )
         for item in submission.days.all()
     }
     suggested_off_days = _suggested_off_days_from_constraints(request.staff, month)
     apply_constraints = request.GET.get("apply_constraints") == "1"
 
     days = []
+    requested_off_count = 0
     for day in _calendar_days(month):
         suggested_state = "off" if day["number"] in suggested_off_days else "available"
         state = suggested_state if apply_constraints else saved.get(
             day["number"], suggested_state
         )
+        if state in {"off", "paid"}:
+            requested_off_count += 1
         days.append(
             {
                 **day,
@@ -1574,6 +1778,9 @@ def submit_availability(request):
             "submission": submission,
             "days": days,
             "suggested_off_count": len(suggested_off_days),
+            "desired_off_limit": request.staff.desired_off_limit,
+            "requested_off_count": requested_off_count,
+            "rest_constraint_notes": _staff_rest_constraint_notes(request.staff),
         },
     )
 

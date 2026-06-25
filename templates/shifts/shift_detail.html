@@ -8,7 +8,7 @@
       <h1>{{ period.month|date:'Y年n月' }} シフト表</h1>
       <p>状態：{{ period.get_status_display }} · 警告 {{ period.warning_count }}件</p>
       {% if can_edit_shift %}
-        <p class="draft-edit-note">下書き中は、各セルのプルダウンから気軽に編集できます。</p>
+        <p class="draft-edit-note">各セルのプルダウンから編集できます。公開後も急な休みに合わせて更新できます。</p>
       {% endif %}
     </div>
     <div class="actions">
@@ -34,12 +34,12 @@
       {% csrf_token %}
       <div class="draft-edit-toolbar panel">
         <div>
-          <strong>下書き編集モード</strong>
-          <small>変更後は「下書きを保存」を押すまで反映されません。公開後は編集できません。</small>
+          <strong>シフト編集モード</strong>
+          <small>変更後は「シフトを保存」を押すまで反映されません。希望休は自動作成時に優先し、手動編集では警告として扱います。</small>
         </div>
         <button class="btn btn-primary">
           <i class="bi bi-save"></i>
-          下書きを保存
+          シフトを保存
         </button>
       </div>
   {% endif %}
@@ -66,8 +66,13 @@
                 </span>
               </th>
             {% endfor %}
-            <th class="summary-col">出勤数</th>
-            <th class="summary-col">休日数</th>
+            <th class="summary-col">出勤</th>
+            <th class="summary-col">公休</th>
+            <th class="summary-col">有給</th>
+            <th class="summary-col">合計</th>
+            {% for work in works %}
+              <th class="summary-col work-summary-col">{{ work.name }}</th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
@@ -124,10 +129,45 @@
               {% endfor %}
               {# work_count/rest_count は views._period_rows() で集計している。 #}
               <td class="summary-col assigned-count">{{ row.work_count }}</td>
-              <td class="summary-col rest-count">{{ row.rest_count }}</td>
+              <td class="summary-col rest-count {{ row.public_holiday_status }}">
+                {{ row.public_holiday_count }}
+                <small>設定{{ row.public_holiday_target }}</small>
+                {% if row.public_holiday_status != 'ok' %}
+                  <small>警告：{{ row.public_holiday_status_label }}</small>
+                {% endif %}
+              </td>
+              <td class="summary-col paid-leave-count">{{ row.paid_leave_count }}</td>
+              <td class="summary-col total-count {{ row.expected_total_status }}">
+                {{ row.expected_total }}
+                {% if row.expected_total_status != 'ok' %}
+                  <small>警告：{{ row.expected_total_status_label }}</small>
+                {% endif %}
+              </td>
+              {% for item in row.work_summary %}
+                <td class="summary-col work-summary-count">{{ item.count }}</td>
+              {% endfor %}
             </tr>
           {% endfor %}
         </tbody>
+        <tfoot>
+          {% for stat in daily_work_stats %}
+            <tr class="daily-work-stat-row">
+              <th class="sticky-col">{{ stat.work.name }}</th>
+              {% for count in stat.counts %}
+                <td>{{ count }}</td>
+              {% endfor %}
+              <td class="summary-col">{{ stat.total }}</td>
+              <td class="summary-col">—</td>
+              <td class="summary-col">—</td>
+              <td class="summary-col">—</td>
+              {% for work in works %}
+                <td class="summary-col {% if work.id == stat.work.id %}work-summary-count{% endif %}">
+                  {% if work.id == stat.work.id %}{{ stat.total }}{% else %}—{% endif %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tfoot>
       </table>
     </div>
   </section>
@@ -217,7 +257,7 @@
             <i class="bi bi-tools"></i>
             シフト調整サポート
           </h2>
-          <p>編集や急な休みで崩れやすい最低人数・希望休・スキル・出勤数の偏りを確認できます。</p>
+          <p>編集や急な休みで崩れやすい必要人数・希望休・スキル・出勤数の偏りを確認できます。</p>
         </div>
         {% if edit_support.has_issues %}
           <span class="status warning large">要確認</span>
@@ -228,14 +268,14 @@
 
       <div class="support-grid">
         <div class="support-card">
-          <h3>最低人数不足</h3>
+          <h3>必要人数不足</h3>
           {% for item in edit_support.daily_shortages %}
             <div class="support-item danger">
               <strong>{{ item.day.date|date:'n/j' }} {{ item.work.name }}</strong>
               <span>{{ item.count }}/{{ item.required }}人 · あと{{ item.shortage }}人</span>
             </div>
           {% empty %}
-            <p class="empty">全業務で最低人数を満たしています。</p>
+            <p class="empty">全業務で必要人数を満たしています。</p>
           {% endfor %}
         </div>
 
@@ -247,7 +287,7 @@
               <span>{{ issue.message }}</span>
             </div>
           {% empty %}
-            <p class="empty">勤務不可・休み希望・スキル不可の目立つ衝突はありません。</p>
+            <p class="empty">勤務不可・公休希望・有給希望・スキル不可の目立つ衝突はありません。</p>
           {% endfor %}
         </div>
 

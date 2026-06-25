@@ -373,7 +373,12 @@ class MonthlyShiftGenerator:
         for member in staff_list:
             available = availability_map.get((member.id, current))
             rating = skill_map.get((member.id, work.id))
-            if not available or not available.available or available.preferred_off:
+            if (
+                not available
+                or not available.available
+                or available.preferred_off
+                or available.paid_leave
+            ):
                 continue
             if (
                 not rating
@@ -602,6 +607,7 @@ class MonthlyShiftGenerator:
                 not available
                 or not available.available
                 or available.preferred_off
+                or available.paid_leave
                 or not rating
                 or not rating.assignable
                 or (member.id, current) in assigned_by_day

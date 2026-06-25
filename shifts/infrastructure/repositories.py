@@ -72,7 +72,11 @@ class DjangoShiftRepository:
         )
         return [
             Availability(
-                row.submission.staff_id, row.day, row.available, row.preferred_off
+                row.submission.staff_id,
+                row.day,
+                row.available,
+                row.preferred_off,
+                row.paid_leave,
             )
             for row in rows.select_related("submission")
         ]

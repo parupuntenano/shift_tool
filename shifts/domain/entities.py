@@ -31,6 +31,7 @@ class Availability:
     day: date
     available: bool
     preferred_off: bool = False
+    paid_leave: bool = False
 
 
 @dataclass(frozen=True)

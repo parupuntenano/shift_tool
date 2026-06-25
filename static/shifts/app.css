@@ -96,6 +96,17 @@ body {
   pointer-events: none
 }
 
+.urgent-nav-tab {
+  background: #fff1f3 !important;
+  color: #b4233a !important;
+  border: 1px solid #ffb9c5;
+  font-weight: 900
+}
+
+.urgent-nav-tab i {
+  color: #b4233a !important
+}
+
 .side-nav small {
   margin-left: auto;
   font-size: 9px
@@ -270,6 +281,28 @@ body {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 10px
+}
+
+.dashboard-urgent-leave {
+  margin-bottom: 24px;
+  border-color: #ffb9c5;
+  background: linear-gradient(180deg, #fff1f3, #fff)
+}
+
+.dashboard-urgent-leave h2 {
+  color: #b4233a
+}
+
+.urgent-dashboard-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #ffd1da;
+  padding: 10px 0
+}
+
+.urgent-dashboard-item span {
+  color: var(--muted)
 }
 
 .panel {
@@ -767,12 +800,67 @@ body {
   font-weight: 900
 }
 
+.monthly-table .work-summary-col {
+  min-width: 88px;
+  background: #eef8f0 !important;
+  color: #1d7a43 !important
+}
+
 .monthly-table td.summary-col {
   font-size: 16px
 }
 
+.monthly-table td.work-summary-count {
+  background: #f0fbf3 !important;
+  color: #1d7a43 !important
+}
+
 .monthly-table td.rest-count {
+  color: #1d7a43 !important
+}
+
+.monthly-table td.rest-count.under,
+.monthly-table td.rest-count.over {
+  background: #fff1f3 !important;
   color: #b4233a !important
+}
+
+.monthly-table td.rest-count small {
+  display: block;
+  font-size: 10px;
+  font-weight: 900
+}
+
+.monthly-table td.paid-leave-count {
+  color: #7a4a00 !important
+}
+
+.monthly-table td.total-count.ok {
+  color: #1d7a43 !important
+}
+
+.monthly-table td.total-count.under,
+.monthly-table td.total-count.over {
+  background: #fff1f3 !important;
+  color: #b4233a !important
+}
+
+.monthly-table td.total-count small {
+  display: block;
+  font-size: 10px;
+  font-weight: 900
+}
+
+.monthly-table tfoot th,
+.monthly-table tfoot td {
+  background: #fffaf0 !important;
+  box-shadow: 0 -1px 0 var(--line);
+  color: #7a4a00;
+  font-weight: 900
+}
+
+.monthly-table tfoot .sticky-col {
+  background: #fff4d7 !important
 }
 
 /* 日付表示共通
@@ -1192,6 +1280,127 @@ body {
 
 .day-card select {
   font-size: 17px
+}
+
+.staff-rest-constraints {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d9d2ff;
+  border-radius: 14px;
+  padding: 12px;
+  margin-top: 12px;
+  border-color: #d9d2ff;
+  background: linear-gradient(180deg, #fbf9ff, #fff)
+}
+
+.staff-rest-constraints strong,
+.staff-rest-constraints small {
+  display: block
+}
+
+.staff-rest-constraints small {
+  color: var(--muted)
+}
+
+.staff-rest-constraints ul {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none
+}
+
+.staff-rest-constraints li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px
+}
+
+.staff-rest-constraints em {
+  white-space: nowrap;
+  font-style: normal
+}
+
+.availability-limit-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px
+}
+
+.availability-limit-panel strong,
+.availability-limit-panel small {
+  display: block
+}
+
+.availability-limit-panel small {
+  color: var(--muted)
+}
+
+.availability-limit-panel > div:first-child {
+  flex: 1
+}
+
+.availability-limit-meter {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  border-radius: 14px;
+  background: #f0edff;
+  color: #5237c4;
+  padding: 12px 16px;
+  font-weight: 900
+}
+
+.availability-limit-meter #requested-off-count {
+  font-size: 32px
+}
+
+.availability-limit-panel.over-limit .availability-limit-meter {
+  background: #fff1f3;
+  color: #b4233a
+}
+
+.availability-limit-meter small {
+  margin-left: 8px;
+  color: inherit
+}
+
+.bulk-limit-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fbfbff;
+  padding: 14px;
+  margin-bottom: 16px
+}
+
+.bulk-limit-panel div {
+  flex: 1
+}
+
+.bulk-limit-panel strong,
+.bulk-limit-panel small {
+  display: block
+}
+
+.bulk-limit-panel small {
+  color: var(--muted)
+}
+
+.bulk-limit-panel input {
+  width: 110px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px
 }
 
 .constraint-suggestion {

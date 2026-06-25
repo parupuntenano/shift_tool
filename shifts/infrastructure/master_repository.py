@@ -81,7 +81,13 @@ class DjangoMasterRepository:
             staff, _ = Staff.objects.update_or_create(
                 company_id=company_id,
                 employee_number=row.employee_number,
-                defaults={"name": row.name, "note": row.note, "active": True},
+                defaults={
+                    "name": row.name,
+                    "note": row.note,
+                    "monthly_public_holidays": row.monthly_public_holidays,
+                    "desired_off_limit": row.desired_off_limit,
+                    "active": True,
+                },
             )
             if not staff.user_id:
                 user = User.objects.filter(username=row.employee_number).first()

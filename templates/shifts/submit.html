@@ -6,7 +6,9 @@
     <div>
       <span class="kicker">AVAILABILITY</span>
       <h1>{{ month|date:'Y年n月' }} シフト提出</h1>
-      <p>出勤可または休み希望を選択してください。</p>
+      <p>出勤可・公休希望・有給希望を選択してください。</p>
+      <p class="draft-edit-note">希望上限：公休・有給あわせて{{ desired_off_limit }}日まで
+      </p>
       {% if suggested_off_count %}
         <p class="draft-edit-note">個別制約から休み希望候補を{{ suggested_off_count }}日分見つけました。</p>
       {% endif %}
@@ -24,6 +26,35 @@
   <form method="post">
     {% csrf_token %}
     <input type="hidden" name="month" value="{{ month|date:'Y-m' }}">
+    <section class="panel availability-limit-panel" data-limit="{{ desired_off_limit }}">
+      <div>
+        <strong>申請枠</strong>
+        <small>公休希望と有給希望の合計が上限を超えると提出できません。（上限を超えて申請する場合は担当者に直接問い合わせください。）</small>
+        {% if rest_constraint_notes %}
+          <div class="staff-rest-constraints">
+            <strong>あなたの制約</strong>
+            <ul>
+              {% for rule in rest_constraint_notes %}
+                <li>
+                  <span>
+                    <strong>{{ rule.label }}</strong>
+                    {% if rule.detail %}
+                      <small>{{ rule.detail }}</small>
+                    {% endif %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      </div>
+      <div class="availability-limit-meter">
+        <span id="requested-off-count">{{ requested_off_count }}</span>
+        <span>/</span>
+        <strong>{{ desired_off_limit }}</strong>
+        <small id="requested-off-warning"></small>
+      </div>
+    </section>
     <div class="availability-grid">
       {% for item in days %}
         {# day-card / non-workday / saturday は static/shifts/app.css でカード色に干渉する。 #}
@@ -51,7 +82,12 @@
                     {% if item.state == 'off' %}
                       selected
                     {% endif %}
-            >休み希望</option>
+            >公休希望</option>
+            <option value="paid"
+                    {% if item.state == 'paid' %}
+                      selected
+                    {% endif %}
+            >有給希望</option>
           </select>
           {% if item.suggested_off %}
             <small class="constraint-suggestion">制約候補</small>
@@ -70,4 +106,22 @@
       </button>
     </div>
   </form>
+  <script>
+    (() => {
+      const panel = document.querySelector('.availability-limit-panel');
+      if (!panel) return;
+      const limit = Number(panel.dataset.limit || 0);
+      const count = document.getElementById('requested-off-count');
+      const warning = document.getElementById('requested-off-warning');
+      const selects = [...document.querySelectorAll('.availability-grid select')];
+      const update = () => {
+        const used = selects.filter(select => ['off', 'paid'].includes(select.value)).length;
+        count.textContent = used;
+        panel.classList.toggle('over-limit', used > limit);
+        warning.textContent = used > limit ? '上限を超えています' : `残り${Math.max(limit - used, 0)}日`;
+      };
+      selects.forEach(select => select.addEventListener('change', update));
+      update();
+    })();
+  </script>
 {% endblock %}

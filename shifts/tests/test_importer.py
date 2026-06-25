@@ -35,8 +35,8 @@ class SkillMapFileReaderTests(TestCase):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "スキル表"
-        sheet.append(["社員番号", "氏名", "備考", "受付"])
-        sheet.append(["S001", "青木", "", "A"])
+        sheet.append(["社員番号", "氏名", "公休数", "希望上限", "備考", "受付"])
+        sheet.append(["S001", "青木", 9, 5, "", "A"])
         level_sheet = workbook.create_sheet("スキル区分")
         level_sheet.append(["記号", "意味", "優先度", "アサイン可"])
         level_sheet.append(["A", "主担当", 1, "可"])
@@ -50,6 +50,8 @@ class SkillMapFileReaderTests(TestCase):
         result = SkillMapFileReader().read("skills.xlsx", stream)
 
         self.assertEqual(result.rows[0].skills, {"受付": "A"})
+        self.assertEqual(result.rows[0].monthly_public_holidays, 9)
+        self.assertEqual(result.rows[0].desired_off_limit, 5)
         self.assertEqual(result.skill_levels[0].symbol, "A")
         self.assertEqual(result.skill_levels[0].meaning, "主担当")
         self.assertEqual(result.skill_levels[0].priority, 1)
@@ -111,6 +113,16 @@ class MasterImportTests(DjangoTestCase):
                 company=company, user=staff.user, role=CompanyMembership.Role.STAFF
             ).exists()
         )
+
+    def test_import_updates_staff_public_holidays_and_request_limit(self):
+        company = Company.objects.create(name="テスト", code="staff-off-import-test")
+        data = ImportedSkillMap((ImportedStaffRow("50592", "青木", "", {}, 9, 5),))
+
+        DjangoMasterRepository().save_skill_map(company.id, data)
+
+        staff = Staff.objects.get(company=company, employee_number="50592")
+        self.assertEqual(staff.monthly_public_holidays, 9)
+        self.assertEqual(staff.desired_off_limit, 5)
 
     def test_import_updates_skill_levels_from_excel_definition(self):
         company = Company.objects.create(name="テスト", code="level-import-test")

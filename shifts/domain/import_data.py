@@ -7,6 +7,8 @@ class ImportedStaffRow:
     name: str
     note: str
     skills: dict[str, str]
+    monthly_public_holidays: int = 8
+    desired_off_limit: int = 4
 
 
 @dataclass(frozen=True)

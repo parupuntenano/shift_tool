@@ -30,7 +30,20 @@ class StaffForm(forms.ModelForm):
 
     class Meta:
         model = Staff
-        fields = ["employee_number", "name", "username", "password", "note", "active"]
+        fields = [
+            "employee_number",
+            "name",
+            "username",
+            "password",
+            "monthly_public_holidays",
+            "desired_off_limit",
+            "note",
+            "active",
+        ]
+        widgets = {
+            "monthly_public_holidays": forms.NumberInput(attrs={"min": 0}),
+            "desired_off_limit": forms.NumberInput(attrs={"min": 0}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -54,6 +67,14 @@ class StaffForm(forms.ModelForm):
         if commit:
             staff.save()
         return staff
+
+
+class BulkDesiredOffLimitForm(forms.Form):
+    desired_off_limit = forms.IntegerField(
+        label="公有給希望上限",
+        min_value=0,
+        help_text="公休希望と有給希望を合わせた申請上限を、全スタッフへ反映します。",
+    )
 
 
 class WorkTypeForm(forms.ModelForm):

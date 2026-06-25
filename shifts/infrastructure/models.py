@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.core.validators import MinValueValidator
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -62,6 +61,15 @@ class Staff(models.Model):
     )
     employee_number = models.CharField("社員番号", max_length=50)
     name = models.CharField("氏名", max_length=100)
+    monthly_public_holidays = models.PositiveSmallIntegerField(
+        "月公休数", default=8, validators=[MinValueValidator(0)]
+    )
+    desired_off_limit = models.PositiveSmallIntegerField(
+        "希望上限日数",
+        default=4,
+        validators=[MinValueValidator(0)],
+        help_text="公休希望と有給希望を合わせて申請できる上限日数です。",
+    )
     note = models.TextField("備考", blank=True)
     active = models.BooleanField("有効", default=True)
 
@@ -86,7 +94,7 @@ class WorkType(models.Model):
     name = models.CharField("業務名", max_length=100)
     display_order = models.PositiveIntegerField("表示順", default=0)
     required_staff_per_day = models.PositiveSmallIntegerField(
-        "最低必要人数", default=1, validators=[MinValueValidator(1)]
+        "必要人数", default=1, validators=[MinValueValidator(1)]
     )
     active = models.BooleanField("有効", default=True)
 
@@ -338,7 +346,8 @@ class AvailabilityDay(models.Model):
     )
     day = models.DateField("日付")
     available = models.BooleanField("勤務可能", default=True)
-    preferred_off = models.BooleanField("休み希望", default=False)
+    preferred_off = models.BooleanField("公休希望", default=False)
+    paid_leave = models.BooleanField("有給希望", default=False)
     note = models.CharField("備考", max_length=200, blank=True)
 
     class Meta:

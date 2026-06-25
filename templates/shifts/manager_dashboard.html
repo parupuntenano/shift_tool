@@ -67,6 +67,30 @@
       </div>
     </div>
   </section>
+  {% if pending_leave_request_count %}
+    <section class="panel dashboard-urgent-leave">
+      <div class="support-header">
+        <div>
+          <h2>
+            <i class="bi bi-exclamation-octagon"></i>
+            急な休み申請が未対応です
+          </h2>
+          <p>未対応 {{ pending_leave_request_count }}件。シフト表から承認・却下できます。</p>
+        </div>
+        {% if latest_period %}
+          <a class="btn btn-danger" href="{% url 'shift_detail' latest_period.pk %}">
+            対応する
+          </a>
+        {% endif %}
+      </div>
+      {% for item in pending_leave_requests %}
+        <div class="urgent-dashboard-item">
+          <strong>{{ item.day|date:'n/j' }} {{ item.staff.name }}</strong>
+          <span>{{ item.work_type.name|default:'業務未設定' }} · {{ item.period.month|date:'Y年n月' }}</span>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
   <section class="dashboard-grid">
     <div class="panel">
       <div class="panel-head">

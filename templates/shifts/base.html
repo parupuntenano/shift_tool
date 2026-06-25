@@ -12,7 +12,7 @@
     </title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
-    <link href="{% static 'shifts/app.css' %}?v=20260624-6" rel="stylesheet">
+    <link href="{% static 'shifts/app.css' %}?v=20260625-1" rel="stylesheet">
   </head>
   <body>
 
@@ -29,6 +29,12 @@
             <a class="{% if request.resolver_match.url_name == 'manager_dashboard' %}active{% endif %}"
                href="{% url 'manager_dashboard' %}">
               <i class="bi bi-grid"></i>ダッシュボード</a>
+            {% if pending_leave_request_count %}
+              <a class="urgent-nav-tab" href="{% url 'manager_dashboard' %}">
+                <i class="bi bi-exclamation-octagon"></i>
+                急休 未対応{{ pending_leave_request_count }}件
+              </a>
+            {% endif %}
             <a class="{% if 'shift' in request.resolver_match.url_name %}active{% endif %}"
                href="{% url 'shift_manage' %}">
               <i class="bi bi-calendar3"></i>シフト作成・管理</a>
@@ -63,6 +69,12 @@
                href="{% url 'my_shift' %}">
               <i class="bi bi-exclamation-circle"></i>急な休み申請 <small>マイシフトから</small>
             </a>
+            {% if pending_leave_request_count %}
+              <a class="urgent-nav-tab" href="{% url 'my_shift' %}">
+                <i class="bi bi-exclamation-octagon"></i>
+                申請中{{ pending_leave_request_count }}件
+              </a>
+            {% endif %}
 
           {% endif %}
         </nav>

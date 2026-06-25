@@ -121,10 +121,37 @@ class SkillMapFileReader:
             raise SkillMapReadError("見出しに「社員番号」と「氏名」が必要です。")
         employee_index, name_index = headers.index("社員番号"), headers.index("氏名")
         note_index = headers.index("備考") if "備考" in headers else None
+        public_holiday_index = next(
+            (
+                headers.index(header)
+                for header in ("公休数", "月公休数", "月の公休数")
+                if header in headers
+            ),
+            None,
+        )
+        desired_off_limit_index = next(
+            (
+                headers.index(header)
+                for header in ("希望上限", "希望上限日数", "休み希望上限")
+                if header in headers
+            ),
+            None,
+        )
+        staff_master_columns = {
+            "社員番号",
+            "氏名",
+            "備考",
+            "公休数",
+            "月公休数",
+            "月の公休数",
+            "希望上限",
+            "希望上限日数",
+            "休み希望上限",
+        }
         work_columns = [
             (index, header)
             for index, header in enumerate(headers)
-            if header and header not in {"社員番号", "氏名", "備考"}
+            if header and header not in staff_master_columns
         ]
         result = []
         for raw_row in rows[1:]:
@@ -143,7 +170,26 @@ class SkillMapFileReader:
                 if str(row[index] or "").strip()
             }
             note = str(row[note_index] or "").strip() if note_index is not None else ""
-            result.append(ImportedStaffRow(employee_number, name, note, skills))
+            monthly_public_holidays = SkillMapFileReader._integer_cell(
+                row[public_holiday_index] if public_holiday_index is not None else "",
+                default=8,
+            )
+            desired_off_limit = SkillMapFileReader._integer_cell(
+                row[desired_off_limit_index]
+                if desired_off_limit_index is not None
+                else "",
+                default=4,
+            )
+            result.append(
+                ImportedStaffRow(
+                    employee_number,
+                    name,
+                    note,
+                    skills,
+                    max(0, monthly_public_holidays),
+                    max(0, desired_off_limit),
+                )
+            )
         return ImportedSkillMap(
             tuple(result),
             SkillMapFileReader._convert_skill_levels(skill_level_rows),
