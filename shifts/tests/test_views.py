@@ -1,3 +1,4 @@
+from datetime import date
 from io import BytesIO
 
 from django.contrib.auth import get_user_model
@@ -6,10 +7,15 @@ from django.urls import reverse
 from openpyxl import load_workbook
 
 from shifts.infrastructure.models import (
+    AvailabilityDay,
+    AvailabilitySubmission,
     Company,
     CompanyMembership,
     ConstraintType,
     IndividualConstraint,
+    ShiftAssignment,
+    ShiftLeaveRequest,
+    ShiftPeriod,
     SkillLevel,
     Staff,
     StaffSkill,
@@ -34,7 +40,7 @@ class StaffPasswordChangeTests(TestCase):
         CompanyMembership.objects.create(
             company=self.company, user=self.user, role="staff"
         )
-        Staff.objects.create(
+        self.staff = Staff.objects.create(
             company=self.company, user=self.user, employee_number="S001", name="青木"
         )
         self.client.login(username="S001", password="0000")
@@ -52,6 +58,56 @@ class StaffPasswordChangeTests(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("new-secure-password-123"))
         self.assertTrue(response.wsgi_request.user.is_authenticated)
+
+    def test_submit_availability_has_only_available_and_preferred_off(self):
+        response = self.client.get(reverse("submit_availability"), {"month": "2026-07"})
+
+        self.assertContains(response, "勤務可能")
+        self.assertContains(response, "休み希望")
+        self.assertNotContains(response, "勤務不可")
+        self.assertNotContains(response, 'value="unavailable"')
+
+    def test_unavailable_post_is_saved_as_available(self):
+        response = self.client.post(
+            reverse("submit_availability"),
+            {
+                "month": "2026-07",
+                "day_1": "unavailable",
+            },
+        )
+
+        self.assertRedirects(response, f"{reverse('submit_availability')}?month=2026-07")
+        day = AvailabilityDay.objects.get(
+            submission__staff=self.staff,
+            day=date(2026, 7, 1),
+        )
+        self.assertTrue(day.available)
+        self.assertFalse(day.preferred_off)
+
+    def test_submit_availability_suggests_days_off_from_constraints(self):
+        rule_type = ConstraintType.objects.create(
+            company=self.company,
+            name="勤休パターン",
+            operator=ConstraintType.Operator.WORK_REST_PATTERN,
+            default_strength=5,
+            default_is_hard=False,
+        )
+        IndividualConstraint.objects.create(
+            company=self.company,
+            staff=self.staff,
+            rule_type=rule_type,
+            name="青木：2勤1休",
+            kind=rule_type.operator,
+            text_value="2,1",
+            strength=5,
+            is_hard=False,
+        )
+
+        response = self.client.get(reverse("submit_availability"), {"month": "2026-07"})
+
+        self.assertEqual(response.context["days"][2]["state"], "off")
+        self.assertTrue(response.context["days"][2]["suggested_off"])
+        self.assertContains(response, "制約候補")
 
 
 class ManagerCrudTests(TestCase):
@@ -111,6 +167,7 @@ class ManagerCrudTests(TestCase):
         )
         self.assertIsNone(sheet["D1"].value)
         self.assertEqual(sheet["A2"].value, "S001")
+        self.assertEqual(sheet["C2"].value, "4勤不可;単休不可")
         self.assertEqual(
             [levels.cell(row=1, column=index).value for index in range(1, 5)],
             ["記号", "意味", "優先度", "アサイン可"],
@@ -148,11 +205,263 @@ class ManagerCrudTests(TestCase):
             ["社員番号", "氏名", "備考", "受付", "ロール", "エーカス"],
         )
         self.assertEqual(sheet["A2"].value, "S001")
+        self.assertEqual(sheet["C2"].value, "単休不可")
         self.assertEqual(sheet["D2"].value, "◎")
         self.assertEqual(works.max_row, 4)
         self.assertEqual(works["A2"].value, "受付")
         self.assertEqual(works["B2"].value, 2)
         self.assertEqual(levels["A2"].value, "◎")
+
+    def test_draft_shift_detail_shows_edit_controls_and_support(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(
+            company=self.company, name="受付", required_staff_per_day=1
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        self.assertContains(response, "下書き編集モード")
+        self.assertContains(response, f'name="assignment_{staff.pk}_20260701"')
+        self.assertContains(response, "シフト調整サポート")
+
+    def test_can_update_draft_shift_assignment(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        old_work = WorkType.objects.create(company=self.company, name="受付")
+        new_work = WorkType.objects.create(company=self.company, name="ロール")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        assignment = ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=old_work,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": str(new_work.pk)},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.work_type, new_work)
+        self.assertTrue(assignment.manually_edited)
+
+    def test_can_change_draft_shift_assignment_to_rest(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": ""},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        self.assertFalse(
+            ShiftAssignment.objects.filter(
+                period=period,
+                staff=staff,
+                day=date(2026, 7, 1),
+            ).exists()
+        )
+
+    def test_published_shift_cannot_be_edited(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        old_work = WorkType.objects.create(company=self.company, name="受付")
+        new_work = WorkType.objects.create(company=self.company, name="ロール")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        assignment = ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=old_work,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": str(new_work.pk)},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.work_type, old_work)
+
+    def test_shift_edit_support_flags_unavailable_assignment(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        submission = AvailabilitySubmission.objects.create(
+            staff=staff,
+            month=date(2026, 7, 1),
+            status=AvailabilitySubmission.Status.SUBMITTED,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 1),
+            available=False,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        self.assertContains(response, "勤務不可で提出されています")
+
+    def test_staff_can_request_sudden_leave_from_my_shift(self):
+        staff_user = get_user_model().objects.create_user("S100", password="0000")
+        CompanyMembership.objects.create(
+            company=self.company, user=staff_user, role="staff"
+        )
+        staff = Staff.objects.create(
+            company=self.company,
+            user=staff_user,
+            employee_number="S100",
+            name="青木 太郎",
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        assignment = ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+        self.client.logout()
+        self.client.login(username="S100", password="0000")
+
+        response = self.client.get(reverse("my_shift"), {"month": "2026-07"})
+        self.assertContains(response, "急な休みを申請")
+
+        response = self.client.post(
+            reverse("request_shift_leave"),
+            {"assignment_id": assignment.pk, "reason": "体調不良"},
+        )
+
+        self.assertRedirects(response, f"{reverse('my_shift')}?month=2026-07")
+        leave_request = ShiftLeaveRequest.objects.get(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+        )
+        self.assertEqual(leave_request.status, ShiftLeaveRequest.Status.PENDING)
+        self.assertEqual(leave_request.reason, "体調不良")
+
+    def test_admin_can_approve_sudden_leave_with_replacement(self):
+        original = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        replacement = Staff.objects.create(
+            company=self.company, employee_number="S200", name="田中 花子"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        level = SkillLevel.objects.create(
+            company=self.company, symbol="○", meaning="対応可", assignable=True
+        )
+        StaffSkill.objects.create(staff=replacement, work_type=work, level=level)
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        assignment = ShiftAssignment.objects.create(
+            period=period,
+            staff=original,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+        leave_request = ShiftLeaveRequest.objects.create(
+            period=period,
+            staff=original,
+            assignment=assignment,
+            day=date(2026, 7, 1),
+            work_type=work,
+            reason="体調不良",
+        )
+
+        detail_response = self.client.get(reverse("shift_detail", args=[period.pk]))
+        self.assertContains(detail_response, "急な休み申請")
+        self.assertContains(detail_response, "田中 花子")
+
+        response = self.client.post(
+            reverse("resolve_leave_request", args=[leave_request.pk]),
+            {
+                "action": "approve",
+                "replacement_staff": str(replacement.pk),
+                "admin_note": "代替済み",
+            },
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        leave_request.refresh_from_db()
+        self.assertEqual(leave_request.status, ShiftLeaveRequest.Status.APPROVED)
+        self.assertEqual(leave_request.admin_note, "代替済み")
+        self.assertFalse(
+            ShiftAssignment.objects.filter(
+                period=period,
+                staff=original,
+                day=date(2026, 7, 1),
+            ).exists()
+        )
+        self.assertTrue(
+            ShiftAssignment.objects.filter(
+                period=period,
+                staff=replacement,
+                day=date(2026, 7, 1),
+                work_type=work,
+                manually_edited=True,
+            ).exists()
+        )
 
     def test_can_delete_constraint_after_confirmation(self):
         rule = IndividualConstraint.objects.create(

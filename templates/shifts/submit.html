@@ -6,9 +6,20 @@
     <div>
       <span class="kicker">AVAILABILITY</span>
       <h1>{{ month|date:'Y年n月' }} シフト提出</h1>
-      <p>休み希望を選択してください。</p>
+      <p>出勤可または休み希望を選択してください。</p>
+      {% if suggested_off_count %}
+        <p class="draft-edit-note">個別制約から休み希望候補を{{ suggested_off_count }}日分見つけました。</p>
+      {% endif %}
     </div>
-    <span class="status {{ submission.status }} large">{{ submission.get_status_display }}</span>
+    <div class="page-actions">
+      {% if suggested_off_count %}
+        <a class="btn btn-outline-primary" href="{% url 'submit_availability' %}?month={{ month|date:'Y-m' }}&apply_constraints=1">
+          <i class="bi bi-magic"></i>
+          制約から休み希望を自動入力
+        </a>
+      {% endif %}
+      <span class="status {{ submission.status }} large">{{ submission.get_status_display }}</span>
+    </div>
   </header>
   <form method="post">
     {% csrf_token %}
@@ -41,12 +52,10 @@
                       selected
                     {% endif %}
             >休み希望</option>
-            <option value="unavailable"
-                    {% if item.state == 'unavailable' %}
-                      selected
-                    {% endif %}
-            >勤務不可</option>
           </select>
+          {% if item.suggested_off %}
+            <small class="constraint-suggestion">制約候補</small>
+          {% endif %}
         </article>
       {% endfor %}
     </div>

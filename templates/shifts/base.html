@@ -12,7 +12,7 @@
     </title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
-    <link href="{% static 'shifts/app.css' %}?v=20260624-4" rel="stylesheet">
+    <link href="{% static 'shifts/app.css' %}?v=20260624-6" rel="stylesheet">
   </head>
   <body>
 
@@ -59,8 +59,9 @@
             <a class="{% if request.resolver_match.url_name == 'staff_change_password' %}active{% endif %}"
                href="{% url 'staff_change_password' %}">
               <i class="bi bi-key"></i>パスワード変更</a>
-            <a class="disabled" href="#">
-              <i class="bi bi-exclamation-circle"></i>急な休み申請 <small>Phase 2</small>
+            <a class="{% if request.resolver_match.url_name == 'my_shift' %}active{% endif %}"
+               href="{% url 'my_shift' %}">
+              <i class="bi bi-exclamation-circle"></i>急な休み申請 <small>マイシフトから</small>
             </a>
 
           {% endif %}

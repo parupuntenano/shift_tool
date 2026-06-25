@@ -695,21 +695,69 @@ body {
   overflow: hidden
 }
 
+.draft-edit-note {
+  margin-top: 8px !important;
+  color: #6b4fd6 !important;
+  font-weight: 700
+}
+
+.draft-shift-form {
+  margin: 0
+}
+
+.draft-edit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px
+}
+
+.draft-edit-toolbar strong,
+.draft-edit-toolbar small {
+  display: block
+}
+
+.draft-edit-toolbar small {
+  color: var(--muted);
+  margin-top: 3px
+}
+
 .monthly-table {
   width: max-content;
   min-width: 100%;
-  font-size: 12px
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px
 }
 
 .monthly-table th,
 .monthly-table td {
-  min-width: 54px;
+  min-width: 72px;
   text-align: center;
-  padding: 11px 7px
+  padding: 10px 8px;
+  vertical-align: middle
 }
 
 .monthly-table .sticky-col {
-  min-width: 150px
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  min-width: 170px;
+  background: #fff !important;
+  box-shadow: 8px 0 14px rgba(30, 28, 52, .08)
+}
+
+.monthly-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #fff;
+  box-shadow: 0 1px 0 var(--line)
+}
+
+.monthly-table thead .sticky-col {
+  z-index: 6
 }
 
 .monthly-table .summary-col {
@@ -767,14 +815,14 @@ body {
 }
 
 .monthly-table td.assigned {
-  background: #f0edff;
-  color: #5237c4;
+  background: #f4f1ff;
+  color: #4326ae;
   font-weight: 800
 }
 
 .monthly-table td.rest {
-  color: #a3a9b6;
-  background: #fafbfc
+  color: #6d7482;
+  background: #f7f9fc
 }
 
 /* 日曜・祝日の赤系表示。
@@ -858,6 +906,217 @@ body {
   color: #2f7fc1 !important
 }
 
+.work-chip,
+.rest-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  border-radius: 999px;
+  padding: 6px 9px;
+  line-height: 1.15;
+  font-weight: 900
+}
+
+.work-chip {
+  background: #ffffff;
+  color: #4326ae;
+  box-shadow: inset 0 0 0 1px rgba(81, 55, 196, .2)
+}
+
+.rest-chip {
+  background: #edf0f5;
+  color: #737b8c
+}
+
+.leave-request-cell {
+  outline: 2px solid #ff8a3d;
+  outline-offset: -2px
+}
+
+.draft-shift-select {
+  width: 100%;
+  min-width: 112px;
+  border: 2px solid rgba(81, 55, 196, .24);
+  border-radius: 10px;
+  background: #fff;
+  color: #25213b;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 8px 9px
+}
+
+.manual-edited-mark {
+  display: block;
+  margin-top: 4px;
+  color: #7b61ff;
+  font-size: 10px;
+  font-weight: 900
+}
+
+.urgent-leave-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  margin-top: 5px;
+  padding: 3px 7px;
+  background: #fff1df;
+  color: #b24a00;
+  font-size: 10px;
+  font-weight: 900
+}
+
+.urgent-leave-panel {
+  margin-top: 22px;
+  border-color: #ffd4a3;
+  background: linear-gradient(180deg, #fffaf4, #fff)
+}
+
+.leave-request-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, .9fr) minmax(160px, .8fr) auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid #ffd4a3;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+  margin-bottom: 12px
+}
+
+.leave-request-card strong,
+.leave-request-card span,
+.leave-request-card label {
+  display: block
+}
+
+.leave-request-card span,
+.leave-request-card label {
+  color: var(--muted);
+  font-size: 12px
+}
+
+.leave-request-card select,
+.leave-request-card input {
+  width: 100%;
+  margin-top: 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 10px
+}
+
+.leave-request-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end
+}
+
+.leave-request-history {
+  margin-top: 18px
+}
+
+.leave-request-history h3 {
+  font-size: 15px;
+  font-weight: 900;
+  margin-bottom: 10px
+}
+
+.history-item.compact {
+  padding: 9px 0
+}
+
+.edit-support-panel {
+  margin-top: 22px
+}
+
+.support-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px
+}
+
+.support-header h2 {
+  margin: 0 0 5px
+}
+
+.support-header p {
+  margin: 0;
+  color: var(--muted)
+}
+
+.support-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px
+}
+
+.support-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fbfbff;
+  padding: 16px;
+  max-height: 340px;
+  overflow: auto
+}
+
+.support-card h3 {
+  font-size: 15px;
+  font-weight: 900;
+  margin: 0 0 12px
+}
+
+.support-item {
+  border-radius: 10px;
+  padding: 10px 11px;
+  margin-bottom: 8px;
+  background: #f4f2ff
+}
+
+.support-item strong,
+.support-item span {
+  display: block
+}
+
+.support-item span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px
+}
+
+.support-item.warning {
+  background: #fff7df
+}
+
+.support-item.danger {
+  background: #fff1f3
+}
+
+.support-average {
+  color: var(--muted);
+  margin: 0 0 10px
+}
+
+.balance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+  font-size: 12px
+}
+
+.balance-row.high strong {
+  color: #9d1c32
+}
+
+.balance-row.low strong {
+  color: #1769b3
+}
+
 .warnings {
   margin-top: 22px
 }
@@ -933,6 +1192,19 @@ body {
 
 .day-card select {
   font-size: 17px
+}
+
+.constraint-suggestion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: #f0edff;
+  color: #5237c4 !important;
+  font-size: 11px;
+  font-weight: 900
 }
 
 .submit-bar {
@@ -1094,6 +1366,55 @@ body {
 
 .my-day.off.saturday {
   background: #eef7ff !important
+}
+
+.leave-request-details {
+  width: 100%;
+  margin-top: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px
+}
+
+.leave-request-details summary {
+  cursor: pointer;
+  color: #b4233a;
+  font-size: 12px;
+  font-weight: 900
+}
+
+.leave-request-details form {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px
+}
+
+.leave-request-details input {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 10px
+}
+
+.leave-request-status {
+  display: inline-block;
+  border-radius: 999px;
+  margin-top: 8px !important;
+  padding: 4px 8px;
+  font-weight: 900
+}
+
+.leave-request-status.warning {
+  background: #fff1df;
+  color: #b24a00 !important
+}
+
+.leave-request-status.published {
+  background: #e7f8ee;
+  color: #1d7a43 !important
+}
+
+.leave-request-status.draft {
+  background: #edf0f5;
+  color: #697285 !important
 }
 
 .empty-state {
@@ -1468,6 +1789,15 @@ body {
 
   .dashboard-grid {
     grid-template-columns: 1fr
+  }
+
+  .support-grid,
+  .leave-request-card {
+    grid-template-columns: 1fr
+  }
+
+  .leave-request-actions {
+    justify-content: flex-start
   }
 }
 

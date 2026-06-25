@@ -14,6 +14,7 @@ for model in (
     models.AvailabilityDay,
     models.ShiftPeriod,
     models.ShiftAssignment,
+    models.ShiftLeaveRequest,
     models.GenerationWarning,
     models.ImportJob,
 ):

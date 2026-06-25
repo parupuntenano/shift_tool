@@ -47,9 +47,32 @@
             {% if item.assignment.note %}
               <small>{{ item.assignment.note }}</small>
             {% endif %}
+            {% if item.leave_request %}
+              <small class="leave-request-status {{ item.leave_request.status_class }}">
+                急な休み申請：{{ item.leave_request.get_status_display }}
+              </small>
+              {% if item.leave_request.reason %}
+                <small>理由：{{ item.leave_request.reason }}</small>
+              {% endif %}
+            {% else %}
+              <details class="leave-request-details">
+                <summary>急な休みを申請</summary>
+                <form method="post" action="{% url 'request_shift_leave' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="assignment_id" value="{{ item.assignment.pk }}">
+                  <input type="text" name="reason" maxlength="200" placeholder="理由・連絡事項（任意）">
+                  <button class="btn btn-sm btn-outline-danger">申請する</button>
+                </form>
+              </details>
+            {% endif %}
 
           {% else %}
             <span>休</span>
+            {% if item.leave_request %}
+              <small class="leave-request-status {{ item.leave_request.status_class }}">
+                急な休み申請：{{ item.leave_request.get_status_display }}
+              </small>
+            {% endif %}
           {% endif %}
         </article>
       {% endfor %}

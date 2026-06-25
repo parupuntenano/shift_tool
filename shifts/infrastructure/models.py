@@ -408,6 +408,72 @@ class ShiftAssignment(models.Model):
         ]
 
 
+class ShiftLeaveRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "未対応"
+        APPROVED = "approved", "承認済み"
+        REJECTED = "rejected", "却下"
+
+    period = models.ForeignKey(
+        ShiftPeriod, related_name="leave_requests", on_delete=models.CASCADE
+    )
+    staff = models.ForeignKey(
+        Staff, related_name="shift_leave_requests", on_delete=models.CASCADE
+    )
+    assignment = models.ForeignKey(
+        ShiftAssignment,
+        related_name="leave_requests",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    day = models.DateField("休み申請日")
+    work_type = models.ForeignKey(
+        WorkType,
+        verbose_name="対象業務",
+        related_name="shift_leave_requests",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    reason = models.CharField("理由", max_length=200, blank=True)
+    status = models.CharField(
+        "状態", max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    admin_note = models.CharField("管理者メモ", max_length=200, blank=True)
+    requested_at = models.DateTimeField("申請日時", auto_now_add=True)
+    resolved_at = models.DateTimeField("対応日時", null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="対応者",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+
+    class Meta:
+        verbose_name = "急な休み申請"
+        verbose_name_plural = "急な休み申請"
+        ordering = ["status", "day", "staff__employee_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["period", "staff", "day"],
+                name="unique_shift_leave_request_day",
+            )
+        ]
+
+    @property
+    def status_class(self):
+        if self.status == self.Status.APPROVED:
+            return "published"
+        if self.status == self.Status.REJECTED:
+            return "draft"
+        return "warning"
+
+    def __str__(self):
+        return f"{self.staff} {self.day:%Y-%m-%d} {self.get_status_display()}"
+
+
 class GenerationWarning(models.Model):
     period = models.ForeignKey(
         ShiftPeriod, related_name="warnings", on_delete=models.CASCADE

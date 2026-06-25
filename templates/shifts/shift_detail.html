@@ -7,6 +7,9 @@
       <span class="kicker">MONTHLY SHIFT</span>
       <h1>{{ period.month|date:'Y年n月' }} シフト表</h1>
       <p>状態：{{ period.get_status_display }} · 警告 {{ period.warning_count }}件</p>
+      {% if can_edit_shift %}
+        <p class="draft-edit-note">下書き中は、各セルのプルダウンから気軽に編集できます。</p>
+      {% endif %}
     </div>
     <div class="actions">
       {% if period.status != 'published' %}
@@ -26,6 +29,20 @@
       </a>
     </div>
   </header>
+  {% if can_edit_shift %}
+    <form method="post" action="{% url 'update_shift_draft' period.pk %}" class="draft-shift-form">
+      {% csrf_token %}
+      <div class="draft-edit-toolbar panel">
+        <div>
+          <strong>下書き編集モード</strong>
+          <small>変更後は「下書きを保存」を押すまで反映されません。公開後は編集できません。</small>
+        </div>
+        <button class="btn btn-primary">
+          <i class="bi bi-save"></i>
+          下書きを保存
+        </button>
+      </div>
+  {% endif %}
   <section class="panel shift-board">
     <div class="table-responsive">
       <table class="table table-bordered monthly-table">
@@ -66,11 +83,42 @@
                   {% if cell.assignment %}assigned{% else %}rest{% endif %}
                   {% if cell.day.is_non_workday %}non-workday{% endif %}
                   {% if cell.day.is_saturday %}saturday{% endif %}
+                  {% if cell.leave_request %}leave-request-cell{% endif %}
                 ">
-                  {% if cell.assignment %}
-                    {{ cell.assignment.work_type.name }}
+                  {% if can_edit_shift %}
+                    <select name="{{ cell.field_name }}" class="draft-shift-select" aria-label="{{ row.staff.name }} {{ cell.day.date|date:'n/j' }} の勤務">
+                      <option value="">休</option>
+                      {% for work in works %}
+                        <option value="{{ work.id }}" {% if cell.assignment and cell.assignment.work_type_id == work.id %}selected{% endif %}>
+                          {{ work.name }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    {% if cell.assignment.manually_edited %}
+                      <small class="manual-edited-mark">手動</small>
+                    {% endif %}
+                    {% if cell.leave_request %}
+                      <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
+                    {% endif %}
+                  {% elif cell.assignment %}
+                    <span class="work-chip">
+                      {% if cell.assignment.work_type %}
+                        {{ cell.assignment.work_type.name }}
+                      {% else %}
+                        勤務
+                      {% endif %}
+                    </span>
+                    {% if cell.assignment.manually_edited %}
+                      <small class="manual-edited-mark">手動</small>
+                    {% endif %}
+                    {% if cell.leave_request %}
+                      <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
+                    {% endif %}
                   {% else %}
-                    休
+                    <span class="rest-chip">休</span>
+                    {% if cell.leave_request %}
+                      <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
+                    {% endif %}
                   {% endif %}
                 </td>
               {% endfor %}
@@ -83,6 +131,139 @@
       </table>
     </div>
   </section>
+  {% if can_edit_shift %}
+    </form>
+  {% endif %}
+
+  {% if leave_requests %}
+    <section class="panel urgent-leave-panel">
+      <div class="support-header">
+        <div>
+          <h2>
+            <i class="bi bi-person-exclamation"></i>
+            急な休み申請
+          </h2>
+          <p>スタッフ・パートからの当月シフト公開後の休み申請をここで対応します。</p>
+        </div>
+        {% if pending_leave_requests %}
+          <span class="status warning large">未対応 {{ pending_leave_requests|length }}件</span>
+        {% else %}
+          <span class="status published large">未対応なし</span>
+        {% endif %}
+      </div>
+
+      {% for item in pending_leave_requests %}
+        <form method="post" action="{% url 'resolve_leave_request' item.request.pk %}" class="leave-request-card">
+          {% csrf_token %}
+          <div>
+            <strong>{{ item.request.day|date:'n/j' }} {{ item.request.staff.name }}</strong>
+            <span>
+              {{ item.request.work_type.name|default:'業務未設定' }}
+              {% if item.request.reason %} · 理由：{{ item.request.reason }}{% endif %}
+            </span>
+          </div>
+          <label>
+            代替スタッフ
+            <select name="replacement_staff">
+              <option value="">代替なしで承認</option>
+              {% for candidate in item.candidates %}
+                <option value="{{ candidate.staff.pk }}">
+                  {{ candidate.staff.employee_number }} {{ candidate.staff.name }}（今月{{ candidate.work_count }}日）
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            管理者メモ
+            <input type="text" name="admin_note" placeholder="任意">
+          </label>
+          <div class="leave-request-actions">
+            <button class="btn btn-primary" name="action" value="approve">
+              承認
+            </button>
+            <button class="btn btn-outline-danger" name="action" value="reject">
+              却下
+            </button>
+          </div>
+        </form>
+      {% empty %}
+        <p class="empty">未対応の急な休み申請はありません。</p>
+      {% endfor %}
+
+      <div class="leave-request-history">
+        <h3>申請履歴</h3>
+        {% for item in leave_requests %}
+          <div class="history-item compact">
+            <i class="bi bi-calendar-heart"></i>
+            <div>
+              <strong>{{ item.day|date:'n/j' }} {{ item.staff.name }} · {{ item.work_type.name|default:'業務未設定' }}</strong>
+              <small>
+                {{ item.get_status_display }}
+                {% if item.reason %} · {{ item.reason }}{% endif %}
+                {% if item.admin_note %} · 管理メモ：{{ item.admin_note }}{% endif %}
+              </small>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if show_shift_support %}
+    <section class="panel edit-support-panel">
+      <div class="support-header">
+        <div>
+          <h2>
+            <i class="bi bi-tools"></i>
+            シフト調整サポート
+          </h2>
+          <p>編集や急な休みで崩れやすい最低人数・希望休・スキル・出勤数の偏りを確認できます。</p>
+        </div>
+        {% if edit_support.has_issues %}
+          <span class="status warning large">要確認</span>
+        {% else %}
+          <span class="status published large">大きな崩れなし</span>
+        {% endif %}
+      </div>
+
+      <div class="support-grid">
+        <div class="support-card">
+          <h3>最低人数不足</h3>
+          {% for item in edit_support.daily_shortages %}
+            <div class="support-item danger">
+              <strong>{{ item.day.date|date:'n/j' }} {{ item.work.name }}</strong>
+              <span>{{ item.count }}/{{ item.required }}人 · あと{{ item.shortage }}人</span>
+            </div>
+          {% empty %}
+            <p class="empty">全業務で最低人数を満たしています。</p>
+          {% endfor %}
+        </div>
+
+        <div class="support-card">
+          <h3>希望・スキルの衝突</h3>
+          {% for issue in edit_support.assignment_issues %}
+            <div class="support-item {{ issue.level }}">
+              <strong>{{ issue.day|date:'n/j' }} {{ issue.staff.name }}</strong>
+              <span>{{ issue.message }}</span>
+            </div>
+          {% empty %}
+            <p class="empty">勤務不可・休み希望・スキル不可の目立つ衝突はありません。</p>
+          {% endfor %}
+        </div>
+
+        <div class="support-card">
+          <h3>出勤数バランス</h3>
+          <p class="support-average">平均 {{ edit_support.average_work_count }} 日</p>
+          {% for item in edit_support.balance_rows %}
+            <div class="balance-row {{ item.status }}">
+              <span>{{ item.staff.employee_number }} {{ item.staff.name }}</span>
+              <strong>出勤{{ item.work_count }} / 休{{ item.rest_count }}</strong>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  {% endif %}
 
   {% if warnings %}
     <section class="panel warnings">

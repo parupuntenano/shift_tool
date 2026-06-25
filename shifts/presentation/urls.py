@@ -71,9 +71,24 @@ urlpatterns = [
     path("manager/shifts/", views.shift_manage, name="shift_manage"),
     path("manager/shifts/generate/", views.generate_shift, name="generate_shift"),
     path("manager/shifts/<int:pk>/", views.shift_detail, name="shift_detail"),
+    path(
+        "manager/shifts/<int:pk>/edit/",
+        views.update_shift_draft,
+        name="update_shift_draft",
+    ),
+    path(
+        "manager/shift-leave-requests/<int:pk>/resolve/",
+        views.resolve_leave_request,
+        name="resolve_leave_request",
+    ),
     path("manager/shifts/<int:pk>/publish/", views.publish_shift, name="publish_shift"),
     path("manager/shifts/<int:pk>/delete/", views.shift_delete, name="shift_delete"),
     path("staff/submit/", views.submit_availability, name="submit_availability"),
     path("staff/shifts/", views.my_shift, name="my_shift"),
+    path(
+        "staff/shifts/leave-request/",
+        views.request_shift_leave,
+        name="request_shift_leave",
+    ),
     path("staff/password/", views.staff_change_password, name="staff_change_password"),
 ]
