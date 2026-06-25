@@ -23,6 +23,8 @@ class SkillRating:
     work_id: int
     priority: int
     assignable: bool
+    instructor_capable: bool = False
+    trainee: bool = False
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,14 @@ class Availability:
     available: bool
     preferred_off: bool = False
     paid_leave: bool = False
+
+
+@dataclass(frozen=True)
+class PreviousShiftDay:
+    staff_id: int
+    day: date
+    status: str
+    work_id: int | None = None
 
 
 @dataclass(frozen=True)

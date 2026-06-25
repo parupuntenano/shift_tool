@@ -12,7 +12,7 @@
     </title>
     <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
-    <link href="{% static 'shifts/app.css' %}?v=20260625-1" rel="stylesheet">
+    <link href="{% static 'shifts/app.css' %}?v=20260625-3" rel="stylesheet">
   </head>
   <body>
 
@@ -50,7 +50,7 @@
             <a class="{% if request.resolver_match.url_name == 'constraint_manage' %}active{% endif %}"
                href="{% url 'constraint_manage' %}">
               <i class="bi bi-sliders"></i>個別制約条件</a>
-            <a class="{% if request.resolver_match.url_name == 'import_skill_map' %}active{% endif %}"
+            <a class="{% if request.resolver_match.url_name == 'import_skill_map' or request.resolver_match.url_name == 'previous_shift_list' %}active{% endif %}"
                href="{% url 'import_skill_map' %}">
               <i class="bi bi-file-earmark-arrow-up"></i>Excel取込</a>
 

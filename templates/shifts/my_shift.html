@@ -43,7 +43,12 @@
             </span>
           </div>
           {% if item.assignment %}
-            <span>{{ item.assignment.work_type.name }}</span>
+            <span class="work-chip"
+                  {% if item.assignment.work_type.color %}
+                    style="--work-color: {{ item.assignment.work_type.color }};"
+                  {% endif %}>
+              {{ item.assignment.work_type.name }}
+            </span>
             {% if item.assignment.note %}
               <small>{{ item.assignment.note }}</small>
             {% endif %}

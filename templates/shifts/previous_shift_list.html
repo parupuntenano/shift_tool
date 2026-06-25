@@ -1,0 +1,68 @@
+{% extends 'shifts/base.html' %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>先月シフト実績確認</h1>
+      <p>{{ month|date:'Y年n月' }} / {{ first_day|date:'n/j' }}〜{{ last_day|date:'n/j' }}</p>
+    </div>
+    <div class="page-actions">
+      <span class="previous-shift-source">{{ source_label }}</span>
+      <nav class="month-switcher" aria-label="表示月の切り替え">
+        <a class="btn btn-outline-primary"
+           href="{% url 'previous_shift_list' %}?month={{ prev_month|date:'Y-m' }}">
+          <i class="bi bi-chevron-left"></i>
+        </a>
+        <strong>{{ month|date:'Y年n月' }}</strong>
+        <a class="btn btn-outline-primary"
+           href="{% url 'previous_shift_list' %}?month={{ next_month|date:'Y-m' }}">
+          <i class="bi bi-chevron-right"></i>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="panel previous-shift-panel">
+    <div class="table-responsive previous-shift-scroll">
+      <table class="table table-bordered previous-shift-table align-middle">
+        <thead>
+          <tr>
+            <th class="sticky-staff-column">スタッフ</th>
+            {% for day in days %}
+              <th>
+                <span class="day-label table-day-label">
+                  <strong>{{ day|date:'j' }}</strong>
+                  <small>{{ day|date:'D' }}</small>
+                </span>
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <th class="sticky-staff-column">
+                <strong>{{ row.staff.name }}</strong>
+                <small>{{ row.staff.employee_number }}</small>
+              </th>
+              {% for cell in row.cells %}
+                <td>
+                  <span class="previous-shift-cell previous-shift-{{ cell.status }}"
+                        title="取込値：{{ cell.raw_value|default:cell.label }}">
+                    {{ cell.label }}
+                  </span>
+                </td>
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{{ days|length|add:'1' }}" class="empty">
+                この月の先月シフト実績はまだ取り込まれていません。
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

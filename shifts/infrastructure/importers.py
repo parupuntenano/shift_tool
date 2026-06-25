@@ -99,13 +99,66 @@ class SkillMapFileReader:
                 else ()
             )
             work_rows = (
-                [list(row) for row in work_sheet.iter_rows(values_only=True)]
+                SkillMapFileReader._work_rows_with_fill_colors(work_sheet)
                 if work_sheet
                 else ()
             )
             return skill_rows, level_rows, work_rows
         except Exception as exc:
             raise SkillMapReadError("Excelファイルを読み込めませんでした。") from exc
+
+    @staticmethod
+    def _work_rows_with_fill_colors(sheet):
+        rows = list(sheet.iter_rows())
+        if not rows:
+            return ()
+
+        header_values = [cell.value for cell in rows[0]]
+        headers = [str(value or "").strip() for value in header_values]
+        if "業務名" not in headers:
+            return [list(row) for row in sheet.iter_rows(values_only=True)]
+
+        name_index = headers.index("業務名")
+        color_index = next(
+            (
+                headers.index(header)
+                for header in ("色", "表示色", "カラー", "色コード")
+                if header in headers
+            ),
+            None,
+        )
+        if color_index is None:
+            color_index = len(header_values)
+            header_values.append("色")
+
+        converted_rows = [header_values]
+        for raw_cells in rows[1:]:
+            values = [cell.value for cell in raw_cells]
+            values += [""] * max(0, color_index + 1 - len(values))
+            current_color = SkillMapFileReader._color_cell(values[color_index])
+            fill_color = ""
+            if color_index < len(raw_cells):
+                fill_color = SkillMapFileReader._excel_fill_color(raw_cells[color_index])
+            if not fill_color and name_index < len(raw_cells):
+                fill_color = SkillMapFileReader._excel_fill_color(raw_cells[name_index])
+            values[color_index] = current_color or fill_color
+            converted_rows.append(values)
+        return converted_rows
+
+    @staticmethod
+    def _excel_fill_color(cell):
+        fill = getattr(cell, "fill", None)
+        if not fill or not fill.fill_type:
+            return ""
+        color = fill.fgColor or fill.start_color
+        if getattr(color, "type", "") != "rgb" or not color.rgb:
+            return ""
+        rgb = str(color.rgb)
+        if len(rgb) == 8:
+            rgb = rgb[-6:]
+        if len(rgb) == 6 and all(char in "0123456789abcdefABCDEF" for char in rgb):
+            return f"#{rgb.lower()}"
+        return ""
 
     @staticmethod
     def _convert(rows, skill_level_rows=(), work_type_rows=()):
@@ -125,14 +178,6 @@ class SkillMapFileReader:
             (
                 headers.index(header)
                 for header in ("公休数", "月公休数", "月の公休数")
-                if header in headers
-            ),
-            None,
-        )
-        desired_off_limit_index = next(
-            (
-                headers.index(header)
-                for header in ("希望上限", "希望上限日数", "休み希望上限")
                 if header in headers
             ),
             None,
@@ -174,12 +219,6 @@ class SkillMapFileReader:
                 row[public_holiday_index] if public_holiday_index is not None else "",
                 default=8,
             )
-            desired_off_limit = SkillMapFileReader._integer_cell(
-                row[desired_off_limit_index]
-                if desired_off_limit_index is not None
-                else "",
-                default=4,
-            )
             result.append(
                 ImportedStaffRow(
                     employee_number,
@@ -187,7 +226,6 @@ class SkillMapFileReader:
                     note,
                     skills,
                     max(0, monthly_public_holidays),
-                    max(0, desired_off_limit),
                 )
             )
         return ImportedSkillMap(
@@ -258,6 +296,14 @@ class SkillMapFileReader:
             None,
         )
         active_index = headers.index("有効") if "有効" in headers else None
+        color_index = next(
+            (
+                headers.index(header)
+                for header in ("色", "表示色", "カラー", "色コード")
+                if header in headers
+            ),
+            None,
+        )
 
         result = []
         for raw_row in rows[1:]:
@@ -273,11 +319,15 @@ class SkillMapFileReader:
                 row[active_index] if active_index is not None else "",
                 default=True,
             )
+            color = SkillMapFileReader._color_cell(
+                row[color_index] if color_index is not None else ""
+            )
             result.append(
                 ImportedWorkType(
                     name=name,
                     minimum_staff_per_day=max(1, minimum_staff),
                     active=active,
+                    color=color,
                 )
             )
         return tuple(result)
@@ -310,3 +360,15 @@ class SkillMapFileReader:
         if text in {"0", "false", "no", "n", "不可", "いいえ", "×", "ng"}:
             return False
         return default
+
+    @staticmethod
+    def _color_cell(value):
+        text = SkillMapFileReader._cell(value)
+        if not text:
+            return ""
+        if not text.startswith("#"):
+            text = f"#{text}"
+        hex_part = text[1:]
+        if len(text) == 7 and all(char in "0123456789abcdefABCDEF" for char in hex_part):
+            return f"#{hex_part.lower()}"
+        return ""

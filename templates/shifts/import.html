@@ -8,6 +8,8 @@
       <p>既存のExcel・CSVスキルマップをそのまま活用できます。</p>
     </div>
     <div class="page-actions">
+      <a class="btn btn-outline-primary" href="{% url 'previous_shift_list' %}">
+        <i class="bi bi-table"></i> 取込済み実績を確認</a>
       <a class="btn btn-outline-primary" href="{% url 'download_import_template' %}">
         <i class="bi bi-download"></i> 見本フォーマットをダウンロード</a>
       <a class="btn btn-primary" href="{% url 'download_import_sample' %}">
@@ -17,21 +19,44 @@
   <div class="content-grid">
     <section class="panel upload-panel">
       <i class="bi bi-cloud-arrow-up"></i>
-      <h2>ファイルを選択</h2>
+      <h2>マスタ・スキル表を取り込む</h2>
       <p>.xlsx / .xls / .csv に対応しています。</p>
-      <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">取込を開始</button>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="btn btn-primary">取込を開始</button>
       </form>
       <div class="format-guide">
         <strong>必要な見出し</strong>
-        <code>社員番号, 氏名, 公休数, 希望上限, 備考</code>
+        <code>社員番号, 氏名, 公休数, 備考</code>
         <small>迷ったら右上の「見本フォーマット」をダウンロードして、その形のまま編集してください。</small>
         <small>動作確認だけしたい場合は「サンプルデータ」を取り込むと、スタッフ10人・業務3つをまとめて試せます。</small>
-        <small>公休数と希望上限はスタッフ管理へ自動反映します。希望上限は公休希望と有給希望の合計上限です。</small>
-        <small>「業務マスタ」シートに業務名・必要人数・有効を入力すると、業務管理へ自動反映します。</small>
-        <small>業務スキルも取り込む場合は、公休数・希望上限・備考の後ろに業務マスタと同じ業務名を見出しとして追加し、セルにスキル記号を入力します。</small>
+        <small>公休数はスタッフ管理へ自動反映します。希望上限はExcelに書かず、スタッフ管理の一括変更で管理します。</small>
+        <small>「業務マスタ」シートに業務名・必要人数・色・有効を入力すると、業務管理へ自動反映します。色はコード入力のほか、業務名セルの塗りつぶし色からも読み取れます。</small>
+        <small>業務スキルも取り込む場合は、公休数・備考の後ろに業務マスタと同じ業務名を見出しとして追加し、セルにスキル記号を入力します。</small>
         <small>見本の「スキル区分」シートに記号・意味・優先度・アサイン可を書くと、会社ごとのマーク設定も自動反映します。</small>
         <small>備考には「2勤1休」「4勤不可」「単休不可」「ロールとエーカス交互」「ロール禁止」などを書くと、個別制約へ自動反映します。</small>
         <small>初回取込時は、ログインIDを社員番号、初期パスワードを「0000」として自動登録します。</small>
+      </div>
+    </section>
+    <section class="panel upload-panel">
+      <i class="bi bi-calendar2-week"></i>
+      <h2>先月シフト実績を取り込む</h2>
+      <p>マスタ取込後に、先月の実績表を取り込んで月またぎの制約判定に使います。</p>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="previous_shift">
+        {{ previous_shift_form.as_p }}
+        <button class="btn btn-outline-primary">先月実績を取り込む</button>
+      </form>
+      <div class="format-guide">
+        <strong>必要な見出し</strong>
+        <code>社員番号, 氏名, 2026/6/24, 2026/6/25 ...</code>
+        <small>Excelの場合は「先月シフト実績」シートだけを読み込みます。別シート名だと取り込めません。</small>
+        <small>指定した月の月末7日分だけを読みます。例：6月なら 2026/6/24〜2026/6/30、7月なら 2026/7/25〜2026/7/31。</small>
+        <small>日付列は「24」「6/30」「2026/6/30」のように入力できます。</small>
+        <small>セルが業務名なら勤務、休/公休なら公休、有休/有給なら有給として取り込みます。</small>
+        <small>業務名は先に取り込んだ業務マスタと一致させてください。</small>
       </div>
     </section>
     <aside class="panel">

@@ -48,12 +48,6 @@
           </div>
         {% endif %}
       </div>
-      <div class="availability-limit-meter">
-        <span id="requested-off-count">{{ requested_off_count }}</span>
-        <span>/</span>
-        <strong>{{ desired_off_limit }}</strong>
-        <small id="requested-off-warning"></small>
-      </div>
     </section>
     <div class="availability-grid">
       {% for item in days %}
@@ -71,7 +65,10 @@
               <small>{{ item.date|date:'D' }}</small>
             </span>
           </div>
-          <select name="day_{{ item.number }}" class="form-select">
+          <select name="day_{{ item.number }}"
+                  class="form-select"
+                  data-date="{{ item.date|date:'n/j' }}"
+                  data-weekday="{{ item.date|date:'D' }}">
             {# item.state は AvailabilityDay から復元した現在の提出状態。 #}
             <option value="available"
                     {% if item.state == 'available' %}
@@ -95,12 +92,27 @@
         </article>
       {% endfor %}
     </div>
-    <div class="submit-bar">
+    <section id="availability-confirm-panel" class="availability-confirm-panel" hidden>
       <div>
-        <strong>{{ month|date:'Y年n月' }}分</strong>
-        <small>試験中のため、提出後も再提出で更新できます。</small>
+        <strong>提出前の確認</strong>
+        <small>入力した日にち・曜日を確認してください。問題なければもう一度ボタンを押すと提出されます。</small>
       </div>
-      <button class="btn btn-primary btn-lg">
+      <ul id="availability-confirm-list"></ul>
+    </section>
+    <div class="submit-bar">
+      <div class="availability-submit-info">
+        <div>
+          <strong>{{ month|date:'Y年n月' }}分</strong>
+          <small>試験中のため、提出後も再提出で更新できます。</small>
+        </div>
+        <div class="availability-limit-meter">
+          <span id="requested-off-count">{{ requested_off_count }}</span>
+          <span>/</span>
+          <strong>{{ desired_off_limit }}</strong>
+          <small id="requested-off-warning"></small>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-lg" type="submit" id="availability-submit-button">
         <i class="bi bi-send-check"></i>
         この内容で提出
       </button>
@@ -114,13 +126,78 @@
       const count = document.getElementById('requested-off-count');
       const warning = document.getElementById('requested-off-warning');
       const selects = [...document.querySelectorAll('.availability-grid select')];
+      const form = panel.closest('form');
+      const confirmPanel = document.getElementById('availability-confirm-panel');
+      const confirmList = document.getElementById('availability-confirm-list');
+      const submitButton = document.getElementById('availability-submit-button');
+      const labelMap = {
+        off: '公休希望',
+        paid: '有給希望',
+      };
+      let confirmed = false;
+
+      const selectedRequests = () => selects
+        .filter(select => ['off', 'paid'].includes(select.value))
+        .map(select => ({
+          date: select.dataset.date,
+          weekday: select.dataset.weekday,
+          label: labelMap[select.value],
+        }));
+
       const update = () => {
-        const used = selects.filter(select => ['off', 'paid'].includes(select.value)).length;
+        const used = selectedRequests().length;
         count.textContent = used;
         panel.classList.toggle('over-limit', used > limit);
+        document.querySelector('.submit-bar')?.classList.toggle('over-limit', used > limit);
         warning.textContent = used > limit ? '上限を超えています' : `残り${Math.max(limit - used, 0)}日`;
+        return used;
       };
-      selects.forEach(select => select.addEventListener('change', update));
+
+      const resetConfirmation = () => {
+        confirmed = false;
+        confirmPanel.hidden = true;
+        submitButton.innerHTML = '<i class="bi bi-send-check"></i> この内容で提出';
+      };
+
+      const renderConfirmation = () => {
+        const requests = selectedRequests();
+        confirmList.innerHTML = '';
+        if (!requests.length) {
+          const item = document.createElement('li');
+          item.textContent = '公休希望・有給希望は選択されていません。';
+          confirmList.appendChild(item);
+          return;
+        }
+        requests.forEach(request => {
+          const item = document.createElement('li');
+          item.innerHTML = `<strong>${request.date}（${request.weekday}）</strong><span>${request.label}</span>`;
+          confirmList.appendChild(item);
+        });
+      };
+
+      selects.forEach(select => select.addEventListener('change', () => {
+        update();
+        resetConfirmation();
+      }));
+      form.addEventListener('submit', event => {
+        const used = update();
+        if (used > limit) {
+          event.preventDefault();
+          confirmed = false;
+          confirmPanel.hidden = false;
+          confirmList.innerHTML = '<li class="warning">申請枠の上限を超えています。数を減らしてから提出してください。</li>';
+          confirmPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        if (!confirmed) {
+          event.preventDefault();
+          renderConfirmation();
+          confirmPanel.hidden = false;
+          submitButton.innerHTML = '<i class="bi bi-check2-circle"></i> 確認して提出';
+          confirmed = true;
+          confirmPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
       update();
     })();
   </script>

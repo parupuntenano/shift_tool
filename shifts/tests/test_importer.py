@@ -1,9 +1,11 @@
+from datetime import date
 from io import BytesIO
 from unittest import TestCase
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase as DjangoTestCase
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 
 from shifts.domain.import_data import (
     ImportedSkillLevel,
@@ -13,12 +15,19 @@ from shifts.domain.import_data import (
 )
 from shifts.infrastructure.importers import SkillMapFileReader
 from shifts.infrastructure.master_repository import DjangoMasterRepository
+from shifts.infrastructure.repositories import DjangoShiftRepository
 from shifts.infrastructure.models import (
+    AvailabilityDay,
+    AvailabilitySubmission,
     Company,
     CompanyMembership,
     ConstraintType,
     IndividualConstraint,
+    PreviousMonthShiftDay,
+    ShiftAssignment,
+    ShiftPeriod,
     Staff,
+    StaffSkill,
     SkillLevel,
     WorkType,
 )
@@ -35,14 +44,14 @@ class SkillMapFileReaderTests(TestCase):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "スキル表"
-        sheet.append(["社員番号", "氏名", "公休数", "希望上限", "備考", "受付"])
-        sheet.append(["S001", "青木", 9, 5, "", "A"])
+        sheet.append(["社員番号", "氏名", "公休数", "備考", "受付"])
+        sheet.append(["S001", "青木", 9, "", "A"])
         level_sheet = workbook.create_sheet("スキル区分")
         level_sheet.append(["記号", "意味", "優先度", "アサイン可"])
         level_sheet.append(["A", "主担当", 1, "可"])
         work_sheet = workbook.create_sheet("業務マスタ")
-        work_sheet.append(["業務名", "最低必要人数", "有効"])
-        work_sheet.append(["受付", 2, "有効"])
+        work_sheet.append(["業務名", "最低必要人数", "色", "有効"])
+        work_sheet.append(["受付", 2, "#2563eb", "有効"])
         stream = BytesIO()
         workbook.save(stream)
         stream.seek(0)
@@ -51,13 +60,32 @@ class SkillMapFileReaderTests(TestCase):
 
         self.assertEqual(result.rows[0].skills, {"受付": "A"})
         self.assertEqual(result.rows[0].monthly_public_holidays, 9)
-        self.assertEqual(result.rows[0].desired_off_limit, 5)
+        self.assertIsNone(result.rows[0].desired_off_limit)
         self.assertEqual(result.skill_levels[0].symbol, "A")
         self.assertEqual(result.skill_levels[0].meaning, "主担当")
         self.assertEqual(result.skill_levels[0].priority, 1)
         self.assertTrue(result.skill_levels[0].assignable)
         self.assertEqual(result.work_types[0].name, "受付")
         self.assertEqual(result.work_types[0].minimum_staff_per_day, 2)
+        self.assertEqual(result.work_types[0].color, "#2563eb")
+
+    def test_reads_work_color_from_filled_work_name_cell(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "スキル表"
+        sheet.append(["社員番号", "氏名", "備考", "受付"])
+        sheet.append(["S001", "青木", "", "A"])
+        work_sheet = workbook.create_sheet("業務マスタ")
+        work_sheet.append(["業務名", "必要人数", "有効"])
+        work_sheet.append(["受付", 2, "有効"])
+        work_sheet["A2"].fill = PatternFill("solid", fgColor="22C55E")
+        stream = BytesIO()
+        workbook.save(stream)
+        stream.seek(0)
+
+        result = SkillMapFileReader().read("skills.xlsx", stream)
+
+        self.assertEqual(result.work_types[0].color, "#22c55e")
 
 
 class MasterImportTests(DjangoTestCase):
@@ -114,15 +142,17 @@ class MasterImportTests(DjangoTestCase):
             ).exists()
         )
 
-    def test_import_updates_staff_public_holidays_and_request_limit(self):
-        company = Company.objects.create(name="テスト", code="staff-off-import-test")
-        data = ImportedSkillMap((ImportedStaffRow("50592", "青木", "", {}, 9, 5),))
+    def test_import_updates_staff_public_holidays_and_uses_company_request_limit(self):
+        company = Company.objects.create(
+            name="テスト", code="staff-off-import-test", default_desired_off_limit=6
+        )
+        data = ImportedSkillMap((ImportedStaffRow("50592", "青木", "", {}, 9),))
 
         DjangoMasterRepository().save_skill_map(company.id, data)
 
         staff = Staff.objects.get(company=company, employee_number="50592")
         self.assertEqual(staff.monthly_public_holidays, 9)
-        self.assertEqual(staff.desired_off_limit, 5)
+        self.assertEqual(staff.desired_off_limit, 6)
 
     def test_import_updates_skill_levels_from_excel_definition(self):
         company = Company.objects.create(name="テスト", code="level-import-test")
@@ -143,7 +173,7 @@ class MasterImportTests(DjangoTestCase):
         company = Company.objects.create(name="テスト", code="work-import-test")
         data = ImportedSkillMap(
             rows=(),
-            work_types=(ImportedWorkType("受付", 2, True),),
+            work_types=(ImportedWorkType("受付", 2, True, "#16a34a"),),
         )
 
         result = DjangoMasterRepository().save_skill_map(company.id, data)
@@ -151,7 +181,88 @@ class MasterImportTests(DjangoTestCase):
         work = WorkType.objects.get(company=company, name="受付")
         self.assertEqual(result["works"], 1)
         self.assertEqual(work.required_staff_per_day, 2)
+        self.assertEqual(work.color, "#16a34a")
         self.assertTrue(work.active)
+
+    def test_generation_skill_flags_detect_instructor_and_trainee_levels(self):
+        company = Company.objects.create(name="テスト", code="skill-flag-test")
+        instructor = Staff.objects.create(
+            company=company, employee_number="S001", name="指導者"
+        )
+        trainee = Staff.objects.create(
+            company=company, employee_number="S002", name="研修中"
+        )
+        work = WorkType.objects.create(company=company, name="受付")
+        instructor_level = SkillLevel.objects.create(
+            company=company,
+            symbol="◎",
+            meaning="主担当・指導可",
+            priority=1,
+            assignable=True,
+        )
+        trainee_level = SkillLevel.objects.create(
+            company=company,
+            symbol="△",
+            meaning="補助・訓練中",
+            priority=3,
+            assignable=True,
+        )
+        StaffSkill.objects.create(
+            staff=instructor, work_type=work, level=instructor_level
+        )
+        StaffSkill.objects.create(staff=trainee, work_type=work, level=trainee_level)
+
+        ratings = {
+            item.staff_id: item
+            for item in DjangoShiftRepository().skills_for_generation(company.id)
+        }
+
+        self.assertTrue(ratings[instructor.id].instructor_capable)
+        self.assertFalse(ratings[instructor.id].trainee)
+        self.assertFalse(ratings[trainee.id].instructor_capable)
+        self.assertTrue(ratings[trainee.id].trainee)
+
+    def test_generation_uses_existing_previous_shift_before_imported_result(self):
+        company = Company.objects.create(name="テスト", code="previous-source-test")
+        staff = Staff.objects.create(
+            company=company, employee_number="S001", name="青木"
+        )
+        generated_work = WorkType.objects.create(company=company, name="ロール")
+        imported_work = WorkType.objects.create(company=company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=company,
+            month=date(2026, 6, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 6, 30),
+            work_type=generated_work,
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=company,
+            staff=staff,
+            day=date(2026, 6, 30),
+            status=PreviousMonthShiftDay.Status.WORK,
+            work_type=imported_work,
+            raw_value="受付",
+        )
+
+        previous_days = DjangoShiftRepository().previous_shift_days_for_generation(
+            company.id, date(2026, 7, 1)
+        )
+
+        last_day = next(item for item in previous_days if item.day == date(2026, 6, 30))
+        self.assertEqual(last_day.work_id, generated_work.id)
+        self.assertEqual(last_day.status, PreviousMonthShiftDay.Status.WORK)
+        self.assertTrue(
+            any(
+                item.day == date(2026, 6, 29)
+                and item.status == PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY
+                for item in previous_days
+            )
+        )
 
     def test_reimport_does_not_reset_existing_password(self):
         company = Company.objects.create(name="テスト", code="password-import-test")

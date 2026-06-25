@@ -29,6 +29,7 @@
               <th>ログインID</th>
               <th>公休数</th>
               <th>希望上限</th>
+              <th>区分</th>
               <th>状態</th>
               <th>備考</th>
               <th>操作</th>
@@ -42,6 +43,13 @@
                 <td>{{ item.user.username|default:'未設定' }}</td>
                 <td>{{ item.monthly_public_holidays }}日</td>
                 <td>{{ item.desired_off_limit }}日</td>
+                <td>
+                  {% if item.is_employee %}
+                    <span class="status published">社員</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
                 <td>
                   <span class="status {% if item.active %}published{% endif %}">
                     {{ item.active|yesno:'有効,無効' }}
@@ -59,7 +67,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="8" class="empty">スタッフが未登録です。</td>
+                <td colspan="9" class="empty">スタッフが未登録です。</td>
               </tr>
             {% endfor %}
           </tbody>

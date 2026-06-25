@@ -16,6 +16,7 @@
             <tr>
               <th>表示順</th>
               <th>業務名</th>
+              <th>色</th>
               <th>必要人数/日</th>
               <th>状態</th>
               <th>操作</th>
@@ -26,6 +27,15 @@
               <tr>
                 <td>{{ item.display_order }}</td>
                 <td class="fw-bold">{{ item.name }}</td>
+                <td>
+                  {% if item.color %}
+                    <span class="work-color-preview" style="--work-color: {{ item.color }};">
+                      {{ item.color }}
+                    </span>
+                  {% else %}
+                    <span class="text-muted">標準</span>
+                  {% endif %}
+                </td>
                 <td>{{ item.required_staff_per_day }}名</td>
                 <td>{{ item.active|yesno:'有効,無効' }}</td>
                 <td class="actions">
@@ -39,7 +49,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="5" class="empty">業務が未登録です。</td>
+                <td colspan="6" class="empty">業務が未登録です。</td>
               </tr>
             {% endfor %}
           </tbody>

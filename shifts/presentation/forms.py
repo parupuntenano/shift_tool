@@ -1,3 +1,5 @@
+from datetime import date
+
 from django import forms
 from django.contrib.auth import get_user_model
 
@@ -13,6 +15,19 @@ from shifts.infrastructure.models import (
 
 class MonthInput(forms.DateInput):
     input_type = "month"
+
+
+class MonthField(forms.DateField):
+    widget = MonthInput
+
+    def to_python(self, value):
+        if isinstance(value, str) and len(value) == 7:
+            try:
+                year, month = map(int, value.split("-"))
+                return date(year, month, 1)
+            except (TypeError, ValueError):
+                pass
+        return super().to_python(value)
 
 
 class StaffForm(forms.ModelForm):
@@ -36,13 +51,12 @@ class StaffForm(forms.ModelForm):
             "username",
             "password",
             "monthly_public_holidays",
-            "desired_off_limit",
+            "is_employee",
             "note",
             "active",
         ]
         widgets = {
             "monthly_public_holidays": forms.NumberInput(attrs={"min": 0}),
-            "desired_off_limit": forms.NumberInput(attrs={"min": 0}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -52,7 +66,10 @@ class StaffForm(forms.ModelForm):
 
     def save_for_company(self, company, commit=True):
         staff = super().save(commit=False)
+        is_new = staff.pk is None
         staff.company = company
+        if is_new:
+            staff.desired_off_limit = company.default_desired_off_limit
         username = self.cleaned_data.get("username") or staff.employee_number
         password = self.cleaned_data.get("password")
         if username:
@@ -77,10 +94,21 @@ class BulkDesiredOffLimitForm(forms.Form):
     )
 
 
+class PreviousShiftImportForm(forms.Form):
+    month = MonthField(
+        label="実績月",
+        help_text="取り込む先月シフト実績の月を選択してください。",
+    )
+    file = forms.FileField(label="先月シフト実績ファイル")
+
+
 class WorkTypeForm(forms.ModelForm):
     class Meta:
         model = WorkType
-        fields = ["name", "display_order", "required_staff_per_day", "active"]
+        fields = ["name", "display_order", "required_staff_per_day", "color", "active"]
+        widgets = {
+            "color": forms.TextInput(attrs={"type": "color"}),
+        }
 
     def save_for_company(self, company):
         item = self.save(commit=False)

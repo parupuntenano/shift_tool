@@ -23,6 +23,14 @@
       {% else %}
         <span class="status published large">公開済み</span>
       {% endif %}
+      <a class="btn btn-outline-primary" href="{% url 'download_shift_excel' period.pk %}">
+        <i class="bi bi-file-earmark-spreadsheet"></i>
+        Excel
+      </a>
+      <a class="btn btn-outline-primary" href="{% url 'download_shift_csv' period.pk %}">
+        <i class="bi bi-filetype-csv"></i>
+        CSV
+      </a>
       <a class="btn btn-outline-danger" href="{% url 'shift_delete' period.pk %}">
         <i class="bi bi-trash"></i>
         削除
@@ -89,24 +97,41 @@
                   {% if cell.day.is_non_workday %}non-workday{% endif %}
                   {% if cell.day.is_saturday %}saturday{% endif %}
                   {% if cell.leave_request %}leave-request-cell{% endif %}
-                ">
+                "
+                    {% if cell.assignment and cell.assignment.work_type and cell.assignment.work_type.color %}
+                      style="--work-color: {{ cell.assignment.work_type.color }};"
+                    {% endif %}
+                >
                   {% if can_edit_shift %}
                     <select name="{{ cell.field_name }}" class="draft-shift-select" aria-label="{{ row.staff.name }} {{ cell.day.date|date:'n/j' }} の勤務">
                       <option value="">休</option>
-                      {% for work in works %}
-                        <option value="{{ work.id }}" {% if cell.assignment and cell.assignment.work_type_id == work.id %}selected{% endif %}>
+                      {% for work in row.work_options %}
+                        <option value="{{ work.id }}"
+                                {% if work.color %}style="background-color: color-mix(in srgb, {{ work.color }} 18%, white); color: #1f2937;"{% endif %}
+                                {% if cell.assignment and cell.assignment.work_type_id == work.id %}selected{% endif %}>
                           {{ work.name }}
                         </option>
                       {% endfor %}
+                      {% if cell.assignment and not cell.assignment_work_is_option and cell.assignment.work_type %}
+                        <option value="{{ cell.assignment.work_type_id }}" selected>
+                          {{ cell.assignment.work_type.name }}（不可・現在の割当）
+                        </option>
+                      {% endif %}
                     </select>
                     {% if cell.assignment.manually_edited %}
                       <small class="manual-edited-mark">手動</small>
+                    {% endif %}
+                    {% if not cell.assignment %}
+                      <span class="rest-chip {{ cell.rest_kind }}">{{ cell.rest_label }}</span>
                     {% endif %}
                     {% if cell.leave_request %}
                       <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
                     {% endif %}
                   {% elif cell.assignment %}
-                    <span class="work-chip">
+                    <span class="work-chip"
+                          {% if cell.assignment.work_type and cell.assignment.work_type.color %}
+                            style="--work-color: {{ cell.assignment.work_type.color }};"
+                          {% endif %}>
                       {% if cell.assignment.work_type %}
                         {{ cell.assignment.work_type.name }}
                       {% else %}
@@ -120,7 +145,7 @@
                       <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
                     {% endif %}
                   {% else %}
-                    <span class="rest-chip">休</span>
+                    <span class="rest-chip {{ cell.rest_kind }}">{{ cell.rest_label }}</span>
                     {% if cell.leave_request %}
                       <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
                     {% endif %}
@@ -152,7 +177,12 @@
         <tfoot>
           {% for stat in daily_work_stats %}
             <tr class="daily-work-stat-row">
-              <th class="sticky-col">{{ stat.work.name }}</th>
+              <th class="sticky-col">
+                <span class="work-chip"
+                      {% if stat.work.color %}style="--work-color: {{ stat.work.color }};"{% endif %}>
+                  {{ stat.work.name }}
+                </span>
+              </th>
               {% for count in stat.counts %}
                 <td>{{ count }}</td>
               {% endfor %}
@@ -309,7 +339,7 @@
     <section class="panel warnings">
       <h2>
         <i class="bi bi-exclamation-triangle"></i>
-        生成時の警告
+        警告
       </h2>
       {% for warning in warnings %}
         <div>

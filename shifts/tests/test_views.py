@@ -1,10 +1,11 @@
+import csv
 from datetime import date
-from io import BytesIO
+from io import BytesIO, StringIO
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from shifts.infrastructure.models import (
     AvailabilityDay,
@@ -13,6 +14,7 @@ from shifts.infrastructure.models import (
     CompanyMembership,
     ConstraintType,
     IndividualConstraint,
+    PreviousMonthShiftDay,
     ShiftAssignment,
     ShiftLeaveRequest,
     ShiftPeriod,
@@ -239,12 +241,14 @@ class ManagerCrudTests(TestCase):
                 "name": "新業務",
                 "display_order": 2,
                 "required_staff_per_day": 3,
+                "color": "#22c55e",
                 "active": "on",
             },
         )
         self.assertRedirects(response, reverse("work_manage"))
         work.refresh_from_db()
         self.assertEqual((work.name, work.required_staff_per_day), ("新業務", 3))
+        self.assertEqual(work.color, "#22c55e")
 
     def test_staff_desired_off_limit_can_be_bulk_updated(self):
         first = Staff.objects.create(
@@ -268,8 +272,28 @@ class ManagerCrudTests(TestCase):
         self.assertRedirects(response, reverse("staff_manage"))
         first.refresh_from_db()
         second.refresh_from_db()
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.default_desired_off_limit, 6)
         self.assertEqual(first.desired_off_limit, 6)
         self.assertEqual(second.desired_off_limit, 6)
+
+        response = self.client.post(
+            reverse("staff_manage"),
+            {
+                "employee_number": "S300",
+                "name": "後入 太郎",
+                "username": "S300",
+                "password": "0000",
+                "monthly_public_holidays": "8",
+                "is_employee": "on",
+                "note": "",
+                "active": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("staff_manage"))
+        added = Staff.objects.get(company=self.company, employee_number="S300")
+        self.assertEqual(added.desired_off_limit, 6)
+        self.assertTrue(added.is_employee)
 
     def test_cannot_edit_other_company_data(self):
         work = WorkType.objects.create(company=self.other_company, name="他社業務")
@@ -293,17 +317,18 @@ class ManagerCrudTests(TestCase):
         sheet = workbook["スキル表"]
         levels = workbook["スキル区分"]
         works = workbook["業務マスタ"]
+        previous = workbook["先月シフト実績"]
+        skill_guide = workbook["業務スキル記入例"]
         guide = workbook["入力ルール"]
 
         self.assertEqual(
-            [sheet.cell(row=1, column=index).value for index in range(1, 6)],
-            ["社員番号", "氏名", "公休数", "希望上限", "備考"],
+            [sheet.cell(row=1, column=index).value for index in range(1, 8)],
+            ["社員番号", "氏名", "公休数", "備考", "業務A", "業務B", "業務C"],
         )
-        self.assertIsNone(sheet["F1"].value)
         self.assertEqual(sheet["A2"].value, "S001")
         self.assertEqual(sheet["C2"].value, 8)
-        self.assertEqual(sheet["D2"].value, 4)
-        self.assertEqual(sheet["E2"].value, "4勤不可;単休不可")
+        self.assertEqual(sheet["D2"].value, "4勤不可;単休不可")
+        self.assertEqual(sheet["E2"].value, "◎")
         self.assertEqual(
             [levels.cell(row=1, column=index).value for index in range(1, 5)],
             ["記号", "意味", "優先度", "アサイン可"],
@@ -311,10 +336,20 @@ class ManagerCrudTests(TestCase):
         self.assertIsNone(levels["E1"].value)
         self.assertEqual(levels["A2"].value, "◎")
         self.assertEqual(
-            [works.cell(row=1, column=index).value for index in range(1, 4)],
-            ["業務名", "必要人数", "有効"],
+            [works.cell(row=1, column=index).value for index in range(1, 5)],
+            ["業務名", "必要人数", "色", "有効"],
         )
         self.assertEqual(works["B2"].value, 1)
+        self.assertEqual(works["C2"].value, "#2563eb")
+        self.assertEqual(
+            [previous.cell(row=1, column=index).value for index in range(1, 5)],
+            ["社員番号", "氏名", "2026/6/24", "2026/6/25"],
+        )
+        self.assertEqual(previous["A2"].value, "S001")
+        self.assertEqual(previous["C2"].value, "業務A")
+        self.assertEqual(skill_guide["A1"].value, "手順")
+        self.assertEqual(skill_guide["A8"].value, "スキル表の書き方例")
+        self.assertEqual(skill_guide["E9"].value, "業務A")
         self.assertEqual(guide["A1"].value, "項目")
 
     def test_can_download_import_sample(self):
@@ -334,25 +369,200 @@ class ManagerCrudTests(TestCase):
         sheet = workbook["スキル表"]
         works = workbook["業務マスタ"]
         levels = workbook["スキル区分"]
+        previous = workbook["先月シフト実績"]
+        skill_guide = workbook["業務スキル記入例"]
 
         self.assertEqual(sheet.max_row, 11)
         self.assertEqual(
-            [sheet.cell(row=1, column=index).value for index in range(1, 9)],
-            ["社員番号", "氏名", "公休数", "希望上限", "備考", "受付", "ロール", "エーカス"],
+            [sheet.cell(row=1, column=index).value for index in range(1, 8)],
+            ["社員番号", "氏名", "公休数", "備考", "受付", "ロール", "エーカス"],
         )
         self.assertEqual(sheet["A2"].value, "S001")
         self.assertEqual(sheet["C2"].value, 8)
-        self.assertEqual(sheet["D2"].value, 4)
-        self.assertEqual(sheet["E2"].value, "単休不可")
-        self.assertEqual(sheet["F2"].value, "◎")
+        self.assertEqual(sheet["D2"].value, "単休不可")
+        self.assertEqual(sheet["E2"].value, "◎")
         self.assertEqual(works.max_row, 4)
         self.assertEqual(works["A2"].value, "受付")
         self.assertEqual(
-            [works.cell(row=1, column=index).value for index in range(1, 4)],
-            ["業務名", "必要人数", "有効"],
+            [works.cell(row=1, column=index).value for index in range(1, 5)],
+            ["業務名", "必要人数", "色", "有効"],
         )
         self.assertEqual(works["B2"].value, 2)
+        self.assertEqual(works["C2"].value, "#2563eb")
         self.assertEqual(levels["A2"].value, "◎")
+        self.assertEqual(previous["A2"].value, "S001")
+        self.assertEqual(previous["C2"].value, "受付")
+        self.assertEqual(skill_guide["E9"].value, "受付")
+        self.assertEqual(skill_guide["F10"].value, "○")
+
+    def test_previous_shift_import_reads_only_last_seven_days(self):
+        from shifts.presentation.views import _import_previous_shift_days
+
+        Staff.objects.create(
+            company=self.company, employee_number="S001", name="青木 太郎"
+        )
+        WorkType.objects.create(company=self.company, name="受付")
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "先月シフト実績"
+        sheet.append(
+            [
+                "社員番号",
+                "氏名",
+                "2026/6/23",
+                "2026/6/24",
+                "2026/6/25",
+                "2026/6/26",
+                "2026/6/27",
+                "2026/6/28",
+                "2026/6/29",
+                "2026/6/30",
+            ]
+        )
+        sheet.append(
+            [
+                "S001",
+                "青木 太郎",
+                "受付",
+                "受付",
+                "公休",
+                "有給",
+                "受付",
+                "受付",
+                "公休",
+                "受付",
+            ]
+        )
+        file_obj = BytesIO()
+        file_obj.name = "previous.xlsx"
+        workbook.save(file_obj)
+
+        result = _import_previous_shift_days(
+            self.company, date(2026, 6, 1), file_obj
+        )
+
+        self.assertEqual(result["days"], 7)
+        self.assertFalse(
+            PreviousMonthShiftDay.objects.filter(day=date(2026, 6, 23)).exists()
+        )
+        self.assertEqual(
+            PreviousMonthShiftDay.objects.filter(
+                company=self.company,
+                day__range=(date(2026, 6, 24), date(2026, 6, 30)),
+            ).count(),
+            7,
+        )
+
+    def test_previous_shift_month_form_accepts_browser_month_value(self):
+        from shifts.presentation.forms import PreviousShiftImportForm
+
+        cleaned = PreviousShiftImportForm.base_fields["month"].clean("2026-06")
+
+        self.assertEqual(cleaned, date(2026, 6, 1))
+
+    def test_previous_shift_header_reads_japanese_month_end_text(self):
+        from shifts.presentation.views import _previous_shift_day_from_header
+
+        month = date(2026, 6, 1)
+
+        self.assertEqual(
+            _previous_shift_day_from_header("2026年6月30日(火)", month),
+            date(2026, 6, 30),
+        )
+        self.assertEqual(
+            _previous_shift_day_from_header("30日", month),
+            date(2026, 6, 30),
+        )
+
+    def test_previous_shift_import_requires_named_sheet(self):
+        from shifts.presentation.views import _import_previous_shift_days
+
+        workbook = Workbook()
+        workbook.active.title = "別シート"
+        file_obj = BytesIO()
+        file_obj.name = "previous.xlsx"
+        workbook.save(file_obj)
+
+        with self.assertRaisesMessage(
+            ValueError, "Excel内に「先月シフト実績」シートが必要です。"
+        ):
+            _import_previous_shift_days(self.company, date(2026, 6, 1), file_obj)
+
+    def test_previous_shift_list_shows_imported_results(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S001", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        PreviousMonthShiftDay.objects.create(
+            company=self.company,
+            staff=staff,
+            day=date(2026, 6, 24),
+            status=PreviousMonthShiftDay.Status.WORK,
+            work_type=work,
+            raw_value="受付",
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=self.company,
+            staff=staff,
+            day=date(2026, 6, 25),
+            status=PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY,
+            raw_value="公休",
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=self.company,
+            staff=staff,
+            day=date(2026, 6, 26),
+            status=PreviousMonthShiftDay.Status.PAID_LEAVE,
+            raw_value="有給",
+        )
+
+        response = self.client.get(
+            reverse("previous_shift_list"), {"month": "2026-06"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "先月シフト実績確認")
+        self.assertContains(response, "2026年6月 / 6/24〜6/30")
+        self.assertContains(response, "青木 太郎")
+        self.assertContains(response, "S001")
+        self.assertContains(response, "受付")
+        self.assertContains(response, "公休")
+        self.assertContains(response, "有給")
+
+    def test_previous_shift_list_prefers_generated_shift_over_imported_results(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S001", name="青木 太郎"
+        )
+        generated_work = WorkType.objects.create(company=self.company, name="ロール")
+        imported_work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 6, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 6, 24),
+            work_type=generated_work,
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=self.company,
+            staff=staff,
+            day=date(2026, 6, 24),
+            status=PreviousMonthShiftDay.Status.WORK,
+            work_type=imported_work,
+            raw_value="受付",
+        )
+
+        response = self.client.get(
+            reverse("previous_shift_list"), {"month": "2026-06"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "作成済みシフト表")
+        self.assertContains(response, "ロール")
+        self.assertNotContains(response, "受付")
 
     def test_draft_shift_detail_shows_edit_controls_and_support(self):
         staff = Staff.objects.create(
@@ -416,6 +626,113 @@ class ManagerCrudTests(TestCase):
         self.assertEqual(response.context["rows"][0]["work_summary"][1]["count"], 1)
         self.assertEqual(response.context["daily_work_stats"][0]["counts"][0], 1)
 
+    def test_shift_detail_has_download_buttons(self):
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        self.assertContains(response, reverse("download_shift_excel", args=[period.pk]))
+        self.assertContains(response, reverse("download_shift_csv", args=[period.pk]))
+
+    def test_can_download_shift_csv_without_summary_columns(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("download_shift_csv", args=[period.pk]))
+        content = response.content.decode("utf-8-sig")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('filename="shift_2026_07.csv"', response["Content-Disposition"])
+        self.assertIn("青木 太郎", content)
+        self.assertIn("受付", content)
+        self.assertNotIn("出勤", content)
+        self.assertNotIn("合計", content)
+
+    def test_can_download_shift_excel_without_summary_columns(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付", color="#2563eb")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("download_shift_excel", args=[period.pk]))
+        workbook = load_workbook(BytesIO(response.content))
+        sheet = workbook["シフト表"]
+        values = [
+            cell.value
+            for row in sheet.iter_rows()
+            for cell in row
+            if cell.value is not None
+        ]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('filename="shift_2026_07.xlsx"', response["Content-Disposition"])
+        self.assertEqual(sheet["A1"].value, "2026年7月 シフト表")
+        self.assertEqual(sheet["A2"].value, "社員番号")
+        self.assertEqual(sheet["C3"].value, "受付")
+        self.assertNotIn("出勤", values)
+        self.assertNotIn("合計", values)
+
+    def test_shift_download_leaves_employee_rest_days_blank(self):
+        employee = Staff.objects.create(
+            company=self.company,
+            employee_number="E100",
+            name="社員 太郎",
+            is_employee=True,
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=employee,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        csv_response = self.client.get(reverse("download_shift_csv", args=[period.pk]))
+        csv_rows = list(
+            csv.reader(StringIO(csv_response.content.decode("utf-8-sig")))
+        )
+        excel_response = self.client.get(reverse("download_shift_excel", args=[period.pk]))
+        workbook = load_workbook(BytesIO(excel_response.content))
+        sheet = workbook["シフト表"]
+
+        self.assertEqual(csv_rows[2][2], "受付")
+        self.assertEqual(csv_rows[2][3], "")
+        self.assertEqual(sheet["C3"].value, "受付")
+        self.assertIsNone(sheet["D3"].value)
+
     def test_shift_detail_warns_when_public_holiday_count_misses_target(self):
         staff = Staff.objects.create(
             company=self.company,
@@ -457,6 +774,45 @@ class ManagerCrudTests(TestCase):
         self.assertEqual(response.context["rows"][0]["expected_total"], 31)
         self.assertEqual(response.context["rows"][0]["expected_total_status"], "ok")
 
+    def test_shift_detail_distinguishes_requested_and_inserted_public_holidays(self):
+        staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="青木 太郎",
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+        submission = AvailabilitySubmission.objects.create(
+            staff=staff,
+            month=date(2026, 7, 1),
+            status=AvailabilitySubmission.Status.SUBMITTED,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 2),
+            preferred_off=True,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        cells = response.context["rows"][0]["cells"]
+        self.assertEqual(cells[1]["rest_kind"], "requested-public-holiday")
+        self.assertEqual(cells[1]["rest_label"], "申請公休")
+        self.assertEqual(cells[2]["rest_kind"], "inserted-public-holiday")
+        self.assertEqual(cells[2]["rest_label"], "公休")
+        self.assertContains(response, "requested-public-holiday")
+        self.assertContains(response, "inserted-public-holiday")
+
     def test_can_update_draft_shift_assignment(self):
         staff = Staff.objects.create(
             company=self.company, employee_number="S100", name="青木 太郎"
@@ -484,6 +840,159 @@ class ManagerCrudTests(TestCase):
         assignment.refresh_from_db()
         self.assertEqual(assignment.work_type, new_work)
         self.assertTrue(assignment.manually_edited)
+
+    def test_shift_edit_dropdown_hides_unassignable_staff_work(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        allowed_work = WorkType.objects.create(company=self.company, name="受付")
+        blocked_work = WorkType.objects.create(company=self.company, name="ロール")
+        allowed_level = SkillLevel.objects.create(
+            company=self.company, symbol="○", meaning="対応可", assignable=True
+        )
+        blocked_level = SkillLevel.objects.create(
+            company=self.company, symbol="×", meaning="対応不可", assignable=False
+        )
+        StaffSkill.objects.create(
+            staff=staff, work_type=allowed_work, level=allowed_level
+        )
+        StaffSkill.objects.create(
+            staff=staff, work_type=blocked_work, level=blocked_level
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        self.assertEqual(
+            [work.id for work in response.context["rows"][0]["work_options"]],
+            [allowed_work.id],
+        )
+        self.assertContains(response, f'value="{allowed_work.id}"')
+        self.assertNotContains(response, f'value="{blocked_work.id}"')
+
+    def test_update_shift_draft_ignores_unassignable_staff_work(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        blocked_work = WorkType.objects.create(company=self.company, name="ロール")
+        blocked_level = SkillLevel.objects.create(
+            company=self.company, symbol="×", meaning="対応不可", assignable=False
+        )
+        StaffSkill.objects.create(
+            staff=staff, work_type=blocked_work, level=blocked_level
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": str(blocked_work.pk)},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        self.assertFalse(
+            ShiftAssignment.objects.filter(
+                period=period,
+                staff=staff,
+                day=date(2026, 7, 1),
+            ).exists()
+        )
+
+    def test_update_shift_draft_warns_when_constraint_is_violated(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        rule_type = ConstraintType.objects.create(
+            company=self.company,
+            name="受付禁止",
+            operator=ConstraintType.Operator.FORBID_SPECIFIC_WORK,
+        )
+        IndividualConstraint.objects.create(
+            company=self.company,
+            rule_type=rule_type,
+            staff=staff,
+            work_type_a=work,
+            name="青木受付禁止",
+            kind=IndividualConstraint.Kind.CUSTOM,
+            strength=10,
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": str(work.pk)},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        period.refresh_from_db()
+        self.assertEqual(period.warning_count, 1)
+        warning = period.warnings.get()
+        self.assertEqual(warning.day, date(2026, 7, 1))
+        self.assertEqual(warning.work_type, work)
+        self.assertIn("制約違反", warning.message)
+        self.assertIn("禁止業務", warning.message)
+
+    def test_generate_shift_warns_when_soft_constraint_is_violated(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(
+            company=self.company, name="受付", required_staff_per_day=1
+        )
+        level = SkillLevel.objects.create(
+            company=self.company, symbol="○", meaning="対応可", assignable=True
+        )
+        StaffSkill.objects.create(staff=staff, work_type=work, level=level)
+        submission = AvailabilitySubmission.objects.create(
+            staff=staff,
+            month=date(2026, 7, 1),
+            status=AvailabilitySubmission.Status.SUBMITTED,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 1),
+            available=True,
+        )
+        rule_type = ConstraintType.objects.create(
+            company=self.company,
+            name="受付回避",
+            operator=ConstraintType.Operator.FORBID_SPECIFIC_WORK,
+            default_strength=5,
+            default_is_hard=False,
+        )
+        IndividualConstraint.objects.create(
+            company=self.company,
+            rule_type=rule_type,
+            staff=staff,
+            work_type_a=work,
+            name="青木受付回避",
+            kind=IndividualConstraint.Kind.CUSTOM,
+            strength=5,
+            is_hard=False,
+        )
+
+        response = self.client.post(
+            reverse("generate_shift"),
+            {"month": "2026-07"},
+        )
+
+        period = ShiftPeriod.objects.get(company=self.company, month=date(2026, 7, 1))
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        self.assertTrue(
+            period.warnings.filter(message__contains="制約違反").exists()
+        )
 
     def test_draft_edit_can_assign_on_requested_public_or_paid_leave(self):
         staff = Staff.objects.create(
@@ -524,6 +1033,68 @@ class ManagerCrudTests(TestCase):
             ShiftAssignment.objects.filter(period=period, staff=staff).count(),
             2,
         )
+
+    def test_shift_edit_support_ignores_missing_skill_for_employee_tag(self):
+        staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="社員 太郎",
+            is_employee=True,
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        messages_text = [
+            issue["message"]
+            for issue in response.context["edit_support"]["assignment_issues"]
+        ]
+        self.assertFalse(
+            any("スキルが未設定" in message for message in messages_text)
+        )
+
+    def test_shift_edit_support_still_warns_unassignable_employee_skill(self):
+        staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="社員 太郎",
+            is_employee=True,
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        blocked_level = SkillLevel.objects.create(
+            company=self.company, symbol="×", meaning="対応不可", assignable=False
+        )
+        StaffSkill.objects.create(staff=staff, work_type=work, level=blocked_level)
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        messages_text = [
+            issue["message"]
+            for issue in response.context["edit_support"]["assignment_issues"]
+        ]
+        self.assertTrue(any("アサイン不可" in message for message in messages_text))
 
     def test_can_change_draft_shift_assignment_to_rest(self):
         staff = Staff.objects.create(
@@ -753,6 +1324,58 @@ class ManagerCrudTests(TestCase):
                 manually_edited=True,
             ).exists()
         )
+
+    def test_employee_tag_appears_as_replacement_without_skill_setting(self):
+        original = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        employee = Staff.objects.create(
+            company=self.company,
+            employee_number="S200",
+            name="社員 花子",
+            is_employee=True,
+        )
+        blocked_employee = Staff.objects.create(
+            company=self.company,
+            employee_number="S300",
+            name="不可 社員",
+            is_employee=True,
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        blocked_level = SkillLevel.objects.create(
+            company=self.company, symbol="×", meaning="不可", assignable=False
+        )
+        StaffSkill.objects.create(
+            staff=blocked_employee, work_type=work, level=blocked_level
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        assignment = ShiftAssignment.objects.create(
+            period=period,
+            staff=original,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+        ShiftLeaveRequest.objects.create(
+            period=period,
+            staff=original,
+            assignment=assignment,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        candidate_names = [
+            candidate["staff"].name
+            for item in response.context["pending_leave_requests"]
+            for candidate in item["candidates"]
+        ]
+        self.assertIn("社員 花子", candidate_names)
+        self.assertNotIn("不可 社員", candidate_names)
 
     def test_can_delete_constraint_after_confirmation(self):
         rule = IndividualConstraint.objects.create(

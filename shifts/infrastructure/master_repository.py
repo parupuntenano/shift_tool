@@ -4,7 +4,7 @@ from django.db import transaction
 from django.contrib.auth import get_user_model
 
 from shifts.domain.import_data import ImportedSkillMap
-from .models import CompanyMembership, SkillLevel, Staff, StaffSkill, WorkType
+from .models import Company, CompanyMembership, SkillLevel, Staff, StaffSkill, WorkType
 from .models import ConstraintType, IndividualConstraint
 
 
@@ -51,6 +51,7 @@ class DjangoMasterRepository:
         staff_count = skill_count = account_count = constraint_count = level_count = 0
         work_count = 0
         User = get_user_model()
+        company = Company.objects.get(pk=company_id)
 
         for index, work_row in enumerate(data.work_types, start=1):
             WorkType.objects.update_or_create(
@@ -60,6 +61,7 @@ class DjangoMasterRepository:
                     "required_staff_per_day": work_row.minimum_staff_per_day,
                     "display_order": index,
                     "active": work_row.active,
+                    "color": work_row.color,
                 },
             )
             work_count += 1
@@ -85,7 +87,7 @@ class DjangoMasterRepository:
                     "name": row.name,
                     "note": row.note,
                     "monthly_public_holidays": row.monthly_public_holidays,
-                    "desired_off_limit": row.desired_off_limit,
+                    "desired_off_limit": company.default_desired_off_limit,
                     "active": True,
                 },
             )

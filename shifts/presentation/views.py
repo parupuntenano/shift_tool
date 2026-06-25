@@ -1,8 +1,11 @@
 import calendar
+import csv
 import json
+import re
 from collections import defaultdict
-from io import BytesIO
-from datetime import date
+from io import BytesIO, StringIO
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -17,7 +20,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -29,8 +33,10 @@ from shifts.infrastructure.models import (
     AvailabilitySubmission,
     CompanyMembership,
     ConstraintType,
+    GenerationWarning,
     ImportJob,
     IndividualConstraint,
+    PreviousMonthShiftDay,
     ShiftAssignment,
     ShiftLeaveRequest,
     ShiftPeriod,
@@ -47,6 +53,7 @@ from .forms import (
     ConstraintTypeForm,
     GenerateForm,
     ImportForm,
+    PreviousShiftImportForm,
     SkillLevelForm,
     StaffForm,
     WorkTypeForm,
@@ -218,11 +225,15 @@ def manager_dashboard(request):
 @admin_required
 def staff_manage(request):
     form = StaffForm()
-    bulk_limit_form = BulkDesiredOffLimitForm()
+    bulk_limit_form = BulkDesiredOffLimitForm(
+        initial={"desired_off_limit": request.company.default_desired_off_limit}
+    )
     if request.method == "POST" and request.POST.get("action") == "bulk_limit":
         bulk_limit_form = BulkDesiredOffLimitForm(request.POST)
         if bulk_limit_form.is_valid():
             limit = bulk_limit_form.cleaned_data["desired_off_limit"]
+            request.company.default_desired_off_limit = limit
+            request.company.save(update_fields=["default_desired_off_limit"])
             count = Staff.objects.filter(company=request.company).update(
                 desired_off_limit=limit
             )
@@ -261,7 +272,9 @@ def staff_manage(request):
 def staff_edit(request, pk):
     item = get_object_or_404(Staff, pk=pk, company=request.company)
     form = StaffForm(request.POST or None, instance=item)
-    bulk_limit_form = BulkDesiredOffLimitForm()
+    bulk_limit_form = BulkDesiredOffLimitForm(
+        initial={"desired_off_limit": request.company.default_desired_off_limit}
+    )
     if request.method == "POST" and form.is_valid():
         staff = form.save_for_company(request.company)
         if staff.user:
@@ -724,11 +737,13 @@ def _skill_import_template_workbook(company):
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "スキル表"
-    headers = ["社員番号", "氏名", "公休数", "希望上限", "備考"]
+    work_names = [work.name for work in works] or ["業務A", "業務B", "業務C"]
+    example_work_names = work_names[:3]
+    headers = ["社員番号", "氏名", "公休数", "備考", *example_work_names]
     sample_rows = [
-        ["S001", "青木 太郎", 8, 4, "4勤不可;単休不可"],
-        ["S002", "田中 花子", 8, 4, "業務Aと業務B交互;業務A連続不可"],
-        ["S003", "佐藤 次郎", 9, 5, "業務B禁止"],
+        ["S001", "青木 太郎", 8, "4勤不可;単休不可", "◎", "○", "×"][: len(headers)],
+        ["S002", "田中 花子", 8, "業務Aと業務B交互;業務A連続不可", "○", "◎", "△"][: len(headers)],
+        ["S003", "佐藤 次郎", 9, "業務B禁止", "△", "○", "◎"][: len(headers)],
     ]
 
     header_fill = PatternFill("solid", fgColor="1F4E78")
@@ -744,18 +759,26 @@ def _skill_import_template_workbook(company):
     for sample in sample_rows:
         sheet.append(sample)
 
-    for cell in sheet["E"][1:]:
+    for cell in sheet["D"][1:]:
         cell.fill = note_fill
         cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    if len(headers) > 4:
+        for row in sheet.iter_rows(min_row=2, min_col=5, max_col=len(headers)):
+            for cell in row:
+                cell.fill = PatternFill("solid", fgColor="EAF4FF")
+                cell.alignment = Alignment(horizontal="center")
 
     for column_index, header in enumerate(headers, start=1):
         width = 14
         if header == "氏名":
             width = 18
-        elif header in {"公休数", "希望上限"}:
+        elif header == "公休数":
             width = 12
         elif header == "備考":
             width = 42
+        elif column_index >= 5:
+            width = 14
         sheet.column_dimensions[get_column_letter(column_index)].width = width
     sheet.freeze_panes = "A2"
 
@@ -782,7 +805,7 @@ def _skill_import_template_workbook(company):
         level_sheet.column_dimensions[get_column_letter(column_index)].width = width
 
     work_sheet = workbook.create_sheet("業務マスタ")
-    work_headers = ["業務名", "必要人数", "有効"]
+    work_headers = ["業務名", "必要人数", "色", "有効"]
     work_sheet.append(work_headers)
     for cell in work_sheet[1]:
         cell.fill = header_fill
@@ -795,15 +818,43 @@ def _skill_import_template_workbook(company):
                 [
                     work.name,
                     work.required_staff_per_day,
+                    work.color,
                     "有効" if work.active else "無効",
                 ]
             )
     else:
-        for name in ("業務A", "業務B", "業務C"):
-            work_sheet.append([name, 1, "有効"])
+        for name, color in (("業務A", "#2563eb"), ("業務B", "#16a34a"), ("業務C", "#f97316")):
+            work_sheet.append([name, 1, color, "有効"])
 
-    for column_index, width in enumerate((24, 16, 12), start=1):
+    for column_index, width in enumerate((24, 16, 14, 12), start=1):
         work_sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    _add_skill_entry_guide_sheet(
+        workbook,
+        header_fill,
+        header_font,
+        [
+            ["1", "業務マスタ", "業務名に「受付」「ロール」「エーカス」のような業務名を書きます。"],
+            ["2", "スキル区分", "◎・○・△・×など、会社で使うマークと意味を書きます。"],
+            ["3", "スキル表", "備考の右側に、業務マスタと同じ業務名を列見出しとして書きます。"],
+            ["4", "スキル表", "スタッフごとに、その業務へ入れるレベルのマークをセルへ書きます。"],
+        ],
+        [
+            ["社員番号", "氏名", "公休数", "備考", "業務A", "業務B", "業務C"],
+            ["S001", "青木 太郎", 8, "2勤1休", "◎", "○", "×"],
+            ["S002", "田中 花子", 8, "業務Aと業務B交互", "○", "◎", "△"],
+        ],
+    )
+    _add_previous_shift_example_sheet(
+        workbook,
+        header_fill,
+        header_font,
+        [
+            ["S001", "青木 太郎", "業務A", "業務B", "公休", "業務A", "有給", "業務B", "公休"],
+            ["S002", "田中 花子", "公休", "業務A", "業務B", "公休", "業務A", "業務B", "有給"],
+            ["S003", "佐藤 次郎", "業務C", "公休", "業務A", "業務B", "公休", "業務C", "業務A"],
+        ],
+    )
 
     guide = workbook.create_sheet("入力ルール")
     guide_rows = [
@@ -811,11 +862,12 @@ def _skill_import_template_workbook(company):
         ["社員番号", "ログインIDにも使う番号です。必須です。"],
         ["氏名", "スタッフ名です。必須です。"],
         ["公休数", "スタッフごとの月公休数です。スタッフ管理へ反映します。"],
-        ["希望上限", "公休希望と有給希望を合わせて申請できる上限日数です。"],
+        ["希望上限", "Excelには記入不要です。スタッフ管理の一括変更で全スタッフへ反映します。"],
         ["備考", "個別制約にしたい条件を書きます。複数ある場合は ; で区切れます。"],
-        ["業務マスタ", "業務名・必要人数・有効を入力します。取込時に業務管理へ反映します。"],
-        ["業務列", "スキル表の公休数・希望上限・備考の後ろには、業務マスタと同じ業務名を見出しとして追加します。"],
+        ["業務マスタ", "業務名・必要人数・色・有効を入力します。取込時に業務管理へ反映します。"],
+        ["業務列", "スキル表の公休数・備考の後ろには、業務マスタと同じ業務名を見出しとして追加します。"],
         ["スキル区分", "スキル区分シートの記号・意味・優先度・アサイン可を取込時に自動設定します。"],
+        ["先月シフト実績", "マスタ取込後にこのシートを使って、前月の月末7日分の勤務・公休・有給を取り込めます。"],
         ["備考例", "2勤1休 / 4勤不可 / 単休不可"],
         ["備考例", "業務Aと業務B交互 / 業務A連続不可 / 業務B禁止"],
     ]
@@ -827,7 +879,119 @@ def _skill_import_template_workbook(company):
     guide.column_dimensions["A"].width = 16
     guide.column_dimensions["B"].width = 72
 
+    _add_skill_sheet_comments(sheet)
+    _add_work_sheet_comments(work_sheet)
+    _add_level_sheet_comments(level_sheet)
+
     return workbook
+
+
+def _add_skill_entry_guide_sheet(workbook, header_fill, header_font, steps, examples):
+    sheet = workbook.create_sheet("業務スキル記入例")
+    sheet.append(["手順", "書く場所", "内容"])
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for row in steps:
+        sheet.append(row)
+
+    start_row = len(steps) + 4
+    sheet.cell(row=start_row, column=1, value="スキル表の書き方例")
+    sheet.cell(row=start_row, column=1).font = Font(bold=True)
+    for row_index, row in enumerate(examples, start=start_row + 1):
+        for column_index, value in enumerate(row, start=1):
+            cell = sheet.cell(row=row_index, column=column_index, value=value)
+            if row_index == start_row + 1:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center")
+            elif column_index >= 5:
+                cell.alignment = Alignment(horizontal="center")
+
+    notes_start = start_row + len(examples) + 3
+    notes = [
+        "業務列の見出しは、必ず「業務マスタ」シートの業務名と同じ文字にしてください。",
+        "セルに書くマークは、必ず「スキル区分」シートの記号から選んでください。",
+        "空欄はスキル未設定として扱います。対応不可にしたい場合は、×などの不可マークを書いてください。",
+    ]
+    sheet.cell(row=notes_start, column=1, value="注意")
+    sheet.cell(row=notes_start, column=1).font = Font(bold=True)
+    for offset, note in enumerate(notes, start=1):
+        sheet.cell(row=notes_start + offset, column=1, value=f"・{note}")
+        sheet.merge_cells(
+            start_row=notes_start + offset,
+            start_column=1,
+            end_row=notes_start + offset,
+            end_column=7,
+        )
+
+    widths = (10, 18, 72, 16, 14, 14, 14)
+    for column_index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+
+def _add_skill_sheet_comments(sheet):
+    comments = {
+        "A1": "スタッフを照合するキーです。ログインIDにも使います。",
+        "B1": "スタッフ名です。",
+        "C1": "スタッフごとの月公休数です。",
+        "D1": "個別制約にしたい条件を書きます。例：2勤1休、単休不可、ロールとエーカス交互",
+        "E1": "ここから右側が業務スキル欄です。業務マスタと同じ業務名を見出しにしてください。",
+    }
+    for address, text in comments.items():
+        if sheet[address].value is not None:
+            sheet[address].comment = Comment(text, "ShiftFlow")
+
+
+def _add_work_sheet_comments(sheet):
+    comments = {
+        "A1": "スキル表の業務列・先月実績の勤務名と同じ名前にしてください。",
+        "B1": "1日に必要な人数です。",
+        "C1": "シフト表で使う色です。例：#2563eb",
+        "D1": "有効/無効を書きます。",
+    }
+    for address, text in comments.items():
+        sheet[address].comment = Comment(text, "ShiftFlow")
+
+
+def _add_level_sheet_comments(sheet):
+    comments = {
+        "A1": "スキル表のセルに書くマークです。例：◎、○、△、×",
+        "B1": "マークの意味です。",
+        "C1": "数字が小さいほど優先されます。",
+        "D1": "このマークのスタッフをアサイン可能にする場合は可、不可にする場合は不可。",
+    }
+    for address, text in comments.items():
+        sheet[address].comment = Comment(text, "ShiftFlow")
+
+
+def _add_previous_shift_example_sheet(workbook, header_fill, header_font, rows):
+    sheet = workbook.create_sheet("先月シフト実績")
+    headers = [
+        "社員番号",
+        "氏名",
+        "2026/6/24",
+        "2026/6/25",
+        "2026/6/26",
+        "2026/6/27",
+        "2026/6/28",
+        "2026/6/29",
+        "2026/6/30",
+    ]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for row in rows:
+        sheet.append(row)
+    for row in sheet.iter_rows(min_row=2, min_col=3, max_col=9):
+        for cell in row:
+            cell.alignment = Alignment(horizontal="center")
+    for column_index, width in enumerate((14, 18, 12, 12, 12, 12, 12, 12, 12), start=1):
+        sheet.column_dimensions[get_column_letter(column_index)].width = width
+    sheet.freeze_panes = "C2"
 
 
 def _skill_import_sample_workbook():
@@ -841,18 +1005,18 @@ def _skill_import_sample_workbook():
 
     sheet = workbook.active
     sheet.title = "スキル表"
-    headers = ["社員番号", "氏名", "公休数", "希望上限", "備考", "受付", "ロール", "エーカス"]
+    headers = ["社員番号", "氏名", "公休数", "備考", "受付", "ロール", "エーカス"]
     sample_rows = [
-        ["S001", "青木 太郎", 8, 4, "単休不可", "◎", "○", "△"],
-        ["S002", "田中 花子", 8, 4, "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
-        ["S003", "佐藤 次郎", 8, 4, "受付禁止", "×", "○", "◎"],
-        ["S004", "鈴木 花", 9, 5, "4勤不可", "◎", "△", "○"],
-        ["S005", "高橋 健", 8, 4, "エーカス連続不可", "○", "◎", "○"],
-        ["S006", "伊藤 美咲", 8, 4, "ロール禁止", "◎", "×", "○"],
-        ["S007", "渡辺 翔", 10, 5, "2勤1休", "△", "◎", "○"],
-        ["S008", "山本 葵", 8, 4, "単休不可", "○", "○", "◎"],
-        ["S009", "中村 優", 8, 4, "受付とロール交互", "◎", "◎", "△"],
-        ["S010", "小林 陸", 8, 4, "", "○", "△", "◎"],
+        ["S001", "青木 太郎", 8, "単休不可", "◎", "○", "△"],
+        ["S002", "田中 花子", 8, "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
+        ["S003", "佐藤 次郎", 8, "受付禁止", "×", "○", "◎"],
+        ["S004", "鈴木 花", 9, "4勤不可", "◎", "△", "○"],
+        ["S005", "高橋 健", 8, "エーカス連続不可", "○", "◎", "○"],
+        ["S006", "伊藤 美咲", 8, "ロール禁止", "◎", "×", "○"],
+        ["S007", "渡辺 翔", 10, "2勤1休", "△", "◎", "○"],
+        ["S008", "山本 葵", 8, "単休不可", "○", "○", "◎"],
+        ["S009", "中村 優", 8, "受付とロール交互", "◎", "◎", "△"],
+        ["S010", "小林 陸", 8, "", "○", "△", "◎"],
     ]
 
     sheet.append(headers)
@@ -864,16 +1028,16 @@ def _skill_import_sample_workbook():
     for row in sample_rows:
         sheet.append(row)
 
-    for cell in sheet["E"][1:]:
+    for cell in sheet["D"][1:]:
         cell.fill = note_fill
         cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    for row in sheet.iter_rows(min_row=2, min_col=6, max_col=8):
+    for row in sheet.iter_rows(min_row=2, min_col=5, max_col=7):
         for cell in row:
             cell.fill = skill_fill
             cell.alignment = Alignment(horizontal="center")
 
-    for column_index, width in enumerate((14, 18, 12, 12, 42, 12, 12, 12), start=1):
+    for column_index, width in enumerate((14, 18, 12, 42, 12, 12, 12), start=1):
         sheet.column_dimensions[get_column_letter(column_index)].width = width
     sheet.freeze_panes = "A2"
 
@@ -894,19 +1058,53 @@ def _skill_import_sample_workbook():
         level_sheet.column_dimensions[get_column_letter(column_index)].width = width
 
     work_sheet = workbook.create_sheet("業務マスタ")
-    work_sheet.append(["業務名", "必要人数", "有効"])
+    work_sheet.append(["業務名", "必要人数", "色", "有効"])
     for cell in work_sheet[1]:
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
     for row in (
-        ["受付", 2, "有効"],
-        ["ロール", 2, "有効"],
-        ["エーカス", 1, "有効"],
+        ["受付", 2, "#2563eb", "有効"],
+        ["ロール", 2, "#16a34a", "有効"],
+        ["エーカス", 1, "#f97316", "有効"],
     ):
         work_sheet.append(row)
-    for column_index, width in enumerate((24, 16, 12), start=1):
+    for column_index, width in enumerate((24, 16, 14, 12), start=1):
         work_sheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    _add_skill_entry_guide_sheet(
+        workbook,
+        header_fill,
+        header_font,
+        [
+            ["1", "業務マスタ", "業務名に「受付」「ロール」「エーカス」を登録しています。"],
+            ["2", "スキル区分", "◎・○・△・×の意味と、アサイン可否を登録しています。"],
+            ["3", "スキル表", "備考の右側にある「受付」「ロール」「エーカス」が業務列です。"],
+            ["4", "スキル表", "各スタッフのセルに、入れる業務レベルのマークを書いています。"],
+        ],
+        [
+            ["社員番号", "氏名", "公休数", "備考", "受付", "ロール", "エーカス"],
+            ["S001", "青木 太郎", 8, "単休不可", "◎", "○", "△"],
+            ["S003", "佐藤 次郎", 8, "受付禁止", "×", "○", "◎"],
+        ],
+    )
+    _add_previous_shift_example_sheet(
+        workbook,
+        header_fill,
+        header_font,
+        [
+            ["S001", "青木 太郎", "受付", "ロール", "公休", "エーカス", "有給", "受付", "公休"],
+            ["S002", "田中 花子", "ロール", "公休", "エーカス", "受付", "公休", "ロール", "有給"],
+            ["S003", "佐藤 次郎", "公休", "受付", "ロール", "公休", "エーカス", "受付", "ロール"],
+            ["S004", "鈴木 花", "受付", "公休", "受付", "ロール", "エーカス", "公休", "受付"],
+            ["S005", "高橋 健", "エーカス", "受付", "公休", "ロール", "受付", "有給", "エーカス"],
+            ["S006", "伊藤 美咲", "公休", "ロール", "受付", "公休", "ロール", "受付", "エーカス"],
+            ["S007", "渡辺 翔", "ロール", "エーカス", "公休", "受付", "ロール", "公休", "受付"],
+            ["S008", "山本 葵", "受付", "公休", "エーカス", "受付", "公休", "ロール", "エーカス"],
+            ["S009", "中村 優", "エーカス", "受付", "ロール", "有給", "受付", "ロール", "公休"],
+            ["S010", "小林 陸", "公休", "エーカス", "受付", "ロール", "公休", "受付", "ロール"],
+        ],
+    )
 
     guide = workbook.create_sheet("入力ルール")
     guide_rows = [
@@ -914,11 +1112,12 @@ def _skill_import_sample_workbook():
         ["このファイルの目的", "取込テスト用のサンプルです。スタッフ10人・業務3つを登録できます。"],
         ["社員番号", "取込後のログインIDにも使われます。初期パスワードは 0000 です。"],
         ["公休数", "スタッフごとの月公休数です。スタッフ管理へ反映します。"],
-        ["希望上限", "公休希望と有給希望を合わせて申請できる上限日数です。"],
+        ["希望上限", "Excelには記入不要です。スタッフ管理の一括変更で全スタッフへ反映します。"],
         ["備考", "個別制約へ自動変換される条件の例を入れています。不要なら空欄で問題ありません。"],
-        ["業務マスタ", "業務名・必要人数・有効を業務管理へ反映します。"],
-        ["スキル表", "公休数・希望上限・備考の後ろの業務名とセルの記号から、スタッフごとのスキルを登録します。"],
+        ["業務マスタ", "業務名・必要人数・色・有効を業務管理へ反映します。"],
+        ["スキル表", "公休数・備考の後ろの業務名とセルの記号から、スタッフごとのスキルを登録します。"],
         ["スキル区分", "記号の意味・優先度・アサイン可否を登録します。"],
+        ["先月シフト実績", "マスタ取込後にこのシートを使って、前月の月末7日分の勤務・公休・有給を取り込めます。"],
     ]
     for row in guide_rows:
         guide.append(row)
@@ -927,6 +1126,10 @@ def _skill_import_sample_workbook():
         cell.font = header_font
     guide.column_dimensions["A"].width = 18
     guide.column_dimensions["B"].width = 78
+
+    _add_skill_sheet_comments(sheet)
+    _add_work_sheet_comments(work_sheet)
+    _add_level_sheet_comments(level_sheet)
 
     return workbook
 
@@ -965,11 +1168,177 @@ def download_import_sample(request):
     return response
 
 
+PUBLIC_HOLIDAY_TOKENS = {"休", "公休", "公", "休日", "公休日"}
+PAID_LEAVE_TOKENS = {"有休", "有給", "有", "年休"}
+BLANK_SHIFT_TOKENS = {"", "-", "ー", "－", "未入力"}
+
+
+def _previous_shift_day_from_header(header, month):
+    if isinstance(header, datetime):
+        return header.date()
+    if isinstance(header, date):
+        return header
+    if isinstance(header, int) or (isinstance(header, float) and header.is_integer()):
+        try:
+            return month.replace(day=int(header))
+        except ValueError:
+            return None
+    text = str(header or "").strip()
+    if not text:
+        return None
+    if text.isdigit() or (text.endswith(".0") and text[:-2].isdigit()):
+        try:
+            return month.replace(day=int(float(text)))
+        except ValueError:
+            return None
+
+    numbers = [int(value) for value in re.findall(r"\d+", text)]
+    if len(numbers) == 1:
+        try:
+            return month.replace(day=numbers[0])
+        except ValueError:
+            return None
+    if len(numbers) == 2:
+        try:
+            return date(month.year, numbers[0], numbers[1])
+        except ValueError:
+            return None
+    if len(numbers) >= 3:
+        try:
+            return date(numbers[0], numbers[1], numbers[2])
+        except ValueError:
+            return None
+    return None
+
+
+def _previous_shift_rows_from_file(file_obj):
+    suffix = Path(file_obj.name).suffix.lower()
+    file_obj.seek(0)
+    if suffix == ".csv":
+        text = file_obj.read().decode("utf-8-sig")
+        return list(csv.reader(StringIO(text)))
+    if suffix == ".xlsx":
+        workbook = load_workbook(file_obj, data_only=True)
+        if "先月シフト実績" not in workbook.sheetnames:
+            raise ValueError("Excel内に「先月シフト実績」シートが必要です。")
+        sheet = workbook["先月シフト実績"]
+        return [list(row) for row in sheet.iter_rows(values_only=True)]
+    raise ValueError("先月シフト実績は .xlsx または .csv で取り込んでください。")
+
+
+def _classify_previous_shift_cell(raw_value, work_map):
+    value = str(raw_value or "").strip()
+    compact = value.replace(" ", "").replace("　", "")
+    if compact in BLANK_SHIFT_TOKENS:
+        return PreviousMonthShiftDay.Status.BLANK, None
+    if compact in PUBLIC_HOLIDAY_TOKENS:
+        return PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY, None
+    if compact in PAID_LEAVE_TOKENS:
+        return PreviousMonthShiftDay.Status.PAID_LEAVE, None
+    work = work_map.get(value) or work_map.get(compact)
+    if work:
+        return PreviousMonthShiftDay.Status.WORK, work
+    raise ValueError(f"業務名「{value}」が業務管理に登録されていません。")
+
+
+def _import_previous_shift_days(company, month, file_obj):
+    rows = _previous_shift_rows_from_file(file_obj)
+    if not rows:
+        raise ValueError("取込対象の行がありません。")
+
+    last_day_number = calendar.monthrange(month.year, month.month)[1]
+    import_from = month.replace(day=last_day_number - 6)
+    import_to = month.replace(day=last_day_number)
+    headers = [str(value or "").strip() for value in rows[0]]
+    if "社員番号" not in headers:
+        raise ValueError("見出しに「社員番号」が必要です。")
+    employee_index = headers.index("社員番号")
+    day_columns = [
+        (index, day)
+        for index, header in enumerate(rows[0])
+        if index != employee_index
+        for day in [_previous_shift_day_from_header(header, month)]
+        if day and import_from <= day <= import_to
+    ]
+    if not day_columns:
+        raise ValueError(
+            f"月末7日分の日付列が見つかりません。例：{month.month}/{import_from.day}〜{month.month}/{import_to.day}"
+        )
+
+    staff_map = {
+        staff.employee_number: staff
+        for staff in Staff.objects.filter(company=company, active=True)
+    }
+    work_map = {}
+    for work in WorkType.objects.filter(company=company, active=True):
+        work_map[work.name] = work
+        work_map[work.name.replace(" ", "").replace("　", "")] = work
+
+    imported_items = []
+    skipped = 0
+    for raw_row in rows[1:]:
+        row = list(raw_row) + [""] * max(0, len(headers) - len(raw_row))
+        employee_number = str(row[employee_index] or "").strip()
+        if not employee_number:
+            skipped += 1
+            continue
+        staff = staff_map.get(employee_number)
+        if not staff:
+            raise ValueError(f"社員番号「{employee_number}」のスタッフが登録されていません。")
+        for index, day in day_columns:
+            raw_value = row[index] if index < len(row) else ""
+            status, work = _classify_previous_shift_cell(raw_value, work_map)
+            imported_items.append(
+                PreviousMonthShiftDay(
+                    company=company,
+                    staff=staff,
+                    day=day,
+                    status=status,
+                    work_type=work,
+                    raw_value=str(raw_value or "").strip(),
+                )
+            )
+
+    PreviousMonthShiftDay.objects.filter(
+        company=company, day__range=(import_from, import_to)
+    ).delete()
+    PreviousMonthShiftDay.objects.bulk_create(imported_items)
+    return {
+        "days": len(imported_items),
+        "staff": len({item.staff_id for item in imported_items}),
+        "skipped": skipped,
+        "from": import_from.isoformat(),
+        "to": import_to.isoformat(),
+    }
+
+
 @login_required
 @admin_required
 def import_skill_map(request):
     form = ImportForm(request.POST or None, request.FILES or None)
-    if request.method == "POST" and form.is_valid():
+    previous_shift_form = PreviousShiftImportForm()
+    if request.method == "POST" and request.POST.get("action") == "previous_shift":
+        previous_shift_form = PreviousShiftImportForm(request.POST, request.FILES)
+        if previous_shift_form.is_valid():
+            file = previous_shift_form.cleaned_data["file"]
+            month = previous_shift_form.cleaned_data["month"].replace(day=1)
+            try:
+                result = _import_previous_shift_days(request.company, month, file)
+            except ValueError as exc:
+                previous_shift_form.add_error("file", str(exc))
+            else:
+                ImportJob.objects.create(
+                    company=request.company,
+                    uploaded_by=request.user,
+                    filename=f"先月実績: {file.name}",
+                    result=result,
+                )
+                messages.success(
+                    request,
+                    f"{month.year}年{month.month}月の月末7日分の先月シフト実績を{result['days']}件取り込みました。",
+                )
+                return redirect("import_skill_map")
+    elif request.method == "POST" and form.is_valid():
         file = form.cleaned_data["file"]
         try:
             result = ImportSkillMap(
@@ -997,11 +1366,219 @@ def import_skill_map(request):
         "shifts/import.html",
         {
             "form": form,
+            "previous_shift_form": previous_shift_form,
             "jobs": ImportJob.objects.filter(company=request.company).order_by(
                 "-created_at"
             )[:10],
         },
     )
+
+
+@login_required
+@admin_required
+def previous_shift_list(request):
+    if request.GET.get("month"):
+        month = _month(request.GET.get("month"))
+    else:
+        month = _latest_previous_shift_month(request.company) or _add_months(
+            timezone.localdate().replace(day=1), -1
+        )
+
+    first_day, last_day, days = _previous_shift_month_end_days(month)
+    period = (
+        ShiftPeriod.objects.filter(
+            company=request.company,
+            month=month,
+            assignments__isnull=False,
+        )
+        .distinct()
+        .first()
+    )
+    if period:
+        display = _previous_shift_display_from_period(
+            request.company, period, first_day, last_day, days
+        )
+    else:
+        display = _previous_shift_display_from_import(
+            request.company, first_day, last_day, days
+        )
+
+    return render(
+        request,
+        "shifts/previous_shift_list.html",
+        {
+            "month": month,
+            "prev_month": _add_months(month, -1),
+            "next_month": _add_months(month, 1),
+            "first_day": first_day,
+            "last_day": last_day,
+            "days": days,
+            **display,
+        },
+    )
+
+
+def _latest_previous_shift_month(company):
+    internal_month = (
+        ShiftPeriod.objects.filter(company=company, assignments__isnull=False)
+        .distinct()
+        .order_by("-month")
+        .values_list("month", flat=True)
+        .first()
+    )
+    imported_day = (
+        PreviousMonthShiftDay.objects.filter(company=company)
+        .order_by("-day")
+        .values_list("day", flat=True)
+        .first()
+    )
+    imported_month = imported_day.replace(day=1) if imported_day else None
+    months = [month for month in (internal_month, imported_month) if month]
+    return max(months) if months else None
+
+
+def _previous_shift_month_end_days(month):
+    last_day_number = calendar.monthrange(month.year, month.month)[1]
+    first_day = month.replace(day=last_day_number - 6)
+    last_day = month.replace(day=last_day_number)
+    days = [
+        month.replace(day=number)
+        for number in range(first_day.day, last_day.day + 1)
+    ]
+    return first_day, last_day, days
+
+
+def _previous_shift_display_from_period(company, period, first_day, last_day, days):
+    staff_list = list(
+        Staff.objects.filter(company=company, active=True).order_by("employee_number")
+    )
+    assignment_map = {
+        (item.staff_id, item.day): item
+        for item in ShiftAssignment.objects.filter(
+            period=period,
+            day__range=(first_day, last_day),
+        ).select_related("work_type")
+    }
+    paid_leave_days = {
+        (item.submission.staff_id, item.day)
+        for item in AvailabilityDay.objects.filter(
+            submission__staff__company=company,
+            submission__month=period.month,
+            submission__status=AvailabilitySubmission.Status.SUBMITTED,
+            paid_leave=True,
+            day__range=(first_day, last_day),
+        ).select_related("submission")
+    }
+    rows = []
+    totals = defaultdict(int)
+    for staff in staff_list:
+        cells = []
+        for day in days:
+            assignment = assignment_map.get((staff.id, day))
+            if assignment and assignment.work_type:
+                status = PreviousMonthShiftDay.Status.WORK
+                label = assignment.work_type.name
+                raw_value = "作成済みシフト"
+            elif (staff.id, day) in paid_leave_days:
+                status = PreviousMonthShiftDay.Status.PAID_LEAVE
+                label = "有給"
+                raw_value = "作成済みシフト"
+            else:
+                status = PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY
+                label = "公休"
+                raw_value = "作成済みシフト"
+            totals[status] += 1
+            cells.append(
+                {
+                    "day": day,
+                    "label": label,
+                    "status": status,
+                    "raw_value": raw_value,
+                }
+            )
+        rows.append({"staff": staff, "cells": cells})
+
+    return {
+        "source": "internal",
+        "source_label": "作成済みシフト表",
+        "source_note": "この月のシフト表がアプリ内にあるため、Excel取込より優先して表示しています。",
+        "item_count": len(staff_list) * len(days),
+        "staff_count": len(staff_list),
+        "latest_imported_at": None,
+        "rows": rows,
+        "totals": {
+            "work": totals[PreviousMonthShiftDay.Status.WORK],
+            "public_holiday": totals[PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY],
+            "paid_leave": totals[PreviousMonthShiftDay.Status.PAID_LEAVE],
+            "blank": 0,
+        },
+    }
+
+
+def _previous_shift_display_from_import(company, first_day, last_day, days):
+    items = list(
+        PreviousMonthShiftDay.objects.filter(
+            company=company,
+            day__range=(first_day, last_day),
+        )
+        .select_related("staff", "work_type")
+        .order_by("staff__employee_number", "day")
+    )
+    items_by_staff_day = {(item.staff_id, item.day): item for item in items}
+    staff_list = []
+    seen_staff_ids = set()
+    for item in items:
+        if item.staff_id in seen_staff_ids:
+            continue
+        seen_staff_ids.add(item.staff_id)
+        staff_list.append(item.staff)
+
+    rows = []
+    totals = defaultdict(int)
+    for staff in staff_list:
+        cells = []
+        for day in days:
+            item = items_by_staff_day.get((staff.id, day))
+            if not item:
+                cells.append(
+                    {
+                        "day": day,
+                        "label": "未取込",
+                        "status": "missing",
+                        "raw_value": "",
+                    }
+                )
+                continue
+            label = item.get_status_display()
+            if item.status == PreviousMonthShiftDay.Status.WORK and item.work_type:
+                label = item.work_type.name
+            cells.append(
+                {
+                    "day": day,
+                    "label": label,
+                    "status": item.status,
+                    "raw_value": item.raw_value,
+                }
+            )
+            totals[item.status] += 1
+        rows.append({"staff": staff, "cells": cells})
+
+    latest_imported_at = max((item.imported_at for item in items), default=None)
+    return {
+        "source": "excel",
+        "source_label": "Excel取込データ",
+        "source_note": "作成済みシフト表がないため、Excelから取り込んだ先月実績を表示しています。",
+        "item_count": len(items),
+        "staff_count": len(staff_list),
+        "latest_imported_at": latest_imported_at,
+        "rows": rows,
+        "totals": {
+            "work": totals[PreviousMonthShiftDay.Status.WORK],
+            "public_holiday": totals[PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY],
+            "paid_leave": totals[PreviousMonthShiftDay.Status.PAID_LEAVE],
+            "blank": totals[PreviousMonthShiftDay.Status.BLANK],
+        },
+    }
 
 
 @login_required
@@ -1028,22 +1605,56 @@ def generate_shift(request):
         messages.error(request, "対象月を確認してください。")
         return redirect("shift_manage")
     month = form.cleaned_data["month"].replace(day=1)
+    previous_month = _add_months(month, -1)
+    previous_period = (
+        ShiftPeriod.objects.filter(
+            company=request.company,
+            month=previous_month,
+            assignments__isnull=False,
+        )
+        .distinct()
+        .first()
+    )
+    if previous_period:
+        previous_shift_count = previous_period.assignments.count()
+        carryover_message = (
+            f"作成済みの前月シフト{previous_shift_count}件を加味しました。"
+        )
+    else:
+        previous_shift_count = PreviousMonthShiftDay.objects.filter(
+            company=request.company,
+            day__year=previous_month.year,
+            day__month=previous_month.month,
+        ).count()
+        carryover_message = (
+            f"Excel取込の先月実績{previous_shift_count}件を加味しました。"
+            if previous_shift_count
+            else "先月実績が未取込のため、当月データのみで作成しました。"
+        )
     output = GenerateMonthlyShift(DjangoShiftRepository()).execute(
         request.company.id, month
     )
+    period = ShiftPeriod.objects.get(pk=output.period_id, company=request.company)
+    _refresh_period_constraint_warnings(period)
+    period.refresh_from_db()
     messages.success(
         request,
-        f"{output.assignment_count}件を配置しました。警告は{output.warning_count}件です。",
+        f"{output.assignment_count}件を配置しました。警告は{period.warning_count}件です。"
+        f"{carryover_message}",
     )
     return redirect("shift_detail", pk=output.period_id)
 
 
-def _period_rows(period):
+def _period_rows(period, works=None):
     # 管理者シフト表専用の行データ。
     # days は表の横軸、rows はスタッフごとの縦軸。
     # row.cells[*].day の class 情報が shift_detail.html 経由で CSS に渡る。
     days = _calendar_days(period.month)
-    staff_list = Staff.objects.filter(company=period.company, active=True)
+    works = list(works or WorkType.objects.filter(company=period.company, active=True))
+    staff_list = list(Staff.objects.filter(company=period.company, active=True))
+    work_options_by_staff = _assignable_work_options_by_staff(
+        period.company, staff_list, works
+    )
     assignment_map = {
         (item.staff_id, item.day.day): item
         for item in period.assignments.select_related("work_type")
@@ -1061,21 +1672,51 @@ def _period_rows(period):
         paid_leave=True,
     ):
         paid_leave_days[item.submission.staff_id].add(item.day)
+    requested_public_holiday_days = defaultdict(set)
+    for item in AvailabilityDay.objects.filter(
+        submission__staff__company=period.company,
+        submission__month=period.month,
+        preferred_off=True,
+    ):
+        requested_public_holiday_days[item.submission.staff_id].add(item.day)
     day_count = len(days)
     rows = []
     for staff in staff_list:
-        cells = [
-            {
-                "day": day,
-                "assignment": assignment_map.get((staff.id, day["number"])),
-                "leave_request": leave_request_map.get((staff.id, day["number"])),
-                "field_name": f"assignment_{staff.id}_{day['date']:%Y%m%d}",
-            }
-            for day in days
-        ]
+        work_options = work_options_by_staff[staff.id]
+        work_option_ids = {work.id for work in work_options}
+        staff_paid_leave_days = paid_leave_days[staff.id]
+        staff_requested_public_holiday_days = requested_public_holiday_days[staff.id]
+        cells = []
+        for day in days:
+            assignment = assignment_map.get((staff.id, day["number"]))
+            day_date = day["date"]
+            rest_kind = ""
+            rest_label = ""
+            if not assignment:
+                if day_date in staff_paid_leave_days:
+                    rest_kind = "paid-leave"
+                    rest_label = "有給"
+                elif day_date in staff_requested_public_holiday_days:
+                    rest_kind = "requested-public-holiday"
+                    rest_label = "申請公休"
+                else:
+                    rest_kind = "inserted-public-holiday"
+                    rest_label = "公休"
+            cells.append(
+                {
+                    "day": day,
+                    "assignment": assignment,
+                    "leave_request": leave_request_map.get((staff.id, day["number"])),
+                    "field_name": f"assignment_{staff.id}_{day_date:%Y%m%d}",
+                    "rest_kind": rest_kind,
+                    "rest_label": rest_label,
+                    "assignment_work_is_option": (
+                        not assignment or assignment.work_type_id in work_option_ids
+                    ),
+                }
+            )
         work_count = sum(1 for cell in cells if cell["assignment"])
         rest_count = day_count - work_count
-        staff_paid_leave_days = paid_leave_days[staff.id]
         paid_leave_count = sum(
             1
             for cell in cells
@@ -1101,6 +1742,7 @@ def _period_rows(period):
         rows.append(
             {
                 "staff": staff,
+                "work_options": work_options,
                 "cells": cells,
                 "work_count": work_count,
                 "rest_count": rest_count,
@@ -1123,6 +1765,26 @@ def _period_rows(period):
             }
         )
     return days, rows
+
+
+def _assignable_work_options_by_staff(company, staff_list, works):
+    disallowed_work_ids = defaultdict(set)
+    for skill in StaffSkill.objects.filter(
+        staff__company=company,
+        staff__in=staff_list,
+        work_type__in=works,
+        level__assignable=False,
+    ).select_related("level"):
+        disallowed_work_ids[skill.staff_id].add(skill.work_type_id)
+
+    return {
+        staff.id: [
+            work
+            for work in works
+            if work.id not in disallowed_work_ids[staff.id]
+        ]
+        for staff in staff_list
+    }
 
 
 def _attach_shift_statistics(rows, days, works):
@@ -1159,6 +1821,165 @@ def _attach_shift_statistics(rows, days, works):
         ]
 
     return daily_stats
+
+
+def _shift_export_day_label(day):
+    # ダウンロード用の日付見出し。
+    # 集計値は含めず、画面のシフト本体だけをファイル化する。
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+    label = f"{day['number']}日({weekdays[day['date'].weekday()]})"
+    if day["holiday"]:
+        label = f"{label} {day['holiday']}"
+    return label
+
+
+def _shift_export_cell_label(staff, cell):
+    assignment = cell["assignment"]
+    if assignment and assignment.work_type:
+        return assignment.work_type.name
+    if staff.is_employee and cell["rest_kind"] != "paid-leave":
+        return ""
+    return cell["rest_label"] or "休"
+
+
+def _shift_export_rows(period):
+    days, rows = _period_rows(period)
+    header = ["社員番号", "氏名"] + [_shift_export_day_label(day) for day in days]
+    body = []
+    for row in rows:
+        staff = row["staff"]
+        body.append(
+            [
+                staff.employee_number,
+                staff.name,
+                *[_shift_export_cell_label(staff, cell) for cell in row["cells"]],
+            ]
+        )
+    return days, rows, header, body
+
+
+def _excel_color(value):
+    if not value:
+        return None
+    color = str(value).strip().replace("#", "")
+    if len(color) == 6 and re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+        return color.upper()
+    return None
+
+
+def _apply_shift_export_styles(sheet, period, days, rows):
+    title_fill = PatternFill("solid", fgColor="E0F2FE")
+    header_fill = PatternFill("solid", fgColor="F1F5F9")
+    saturday_fill = PatternFill("solid", fgColor="DBEAFE")
+    non_workday_fill = PatternFill("solid", fgColor="FEE2E2")
+    requested_public_holiday_fill = PatternFill("solid", fgColor="FEE2E2")
+    inserted_public_holiday_fill = PatternFill("solid", fgColor="F8FAFC")
+    paid_leave_fill = PatternFill("solid", fgColor="EDE9FE")
+    borderless_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    max_column = sheet.max_column
+    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_column)
+    title_cell = sheet.cell(row=1, column=1)
+    title_cell.font = Font(size=14, bold=True)
+    title_cell.fill = title_fill
+    title_cell.alignment = Alignment(vertical="center")
+    sheet.row_dimensions[1].height = 26
+
+    for cell in sheet[2]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = borderless_center
+
+    for index, day in enumerate(days, start=3):
+        header_cell = sheet.cell(row=2, column=index)
+        if day["is_saturday"]:
+            header_cell.fill = saturday_fill
+        elif day["is_non_workday"]:
+            header_cell.fill = non_workday_fill
+
+    for row_index, row in enumerate(rows, start=3):
+        staff = row["staff"]
+        for column_index in (1, 2):
+            sheet.cell(row=row_index, column=column_index).alignment = Alignment(
+                vertical="center"
+            )
+        for day_index, cell_data in enumerate(row["cells"], start=3):
+            cell = sheet.cell(row=row_index, column=day_index)
+            cell.alignment = borderless_center
+            assignment = cell_data["assignment"]
+            if assignment and assignment.work_type:
+                work_color = _excel_color(assignment.work_type.color)
+                if work_color:
+                    cell.fill = PatternFill("solid", fgColor=work_color)
+                    cell.font = Font(color="FFFFFF", bold=True)
+                continue
+
+            if staff.is_employee and cell_data["rest_kind"] != "paid-leave":
+                continue
+
+            if cell_data["rest_kind"] == "requested-public-holiday":
+                cell.fill = requested_public_holiday_fill
+                cell.font = Font(color="B4233A", bold=True)
+            elif cell_data["rest_kind"] == "paid-leave":
+                cell.fill = paid_leave_fill
+                cell.font = Font(color="6D28D9", bold=True)
+            elif cell_data["rest_kind"] == "inserted-public-holiday":
+                cell.fill = inserted_public_holiday_fill
+
+    sheet.freeze_panes = "C3"
+    sheet.column_dimensions["A"].width = 14
+    sheet.column_dimensions["B"].width = 18
+    for column_index in range(3, max_column + 1):
+        sheet.column_dimensions[get_column_letter(column_index)].width = 13
+
+
+@login_required
+@admin_required
+def download_shift_csv(request, pk):
+    period = get_object_or_404(ShiftPeriod, pk=pk, company=request.company)
+    _days, _rows, header, body = _shift_export_rows(period)
+
+    response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+    response["Content-Disposition"] = (
+        f'attachment; filename="shift_{period.month:%Y_%m}.csv"'
+    )
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow([f"{period.month.year}年{period.month.month}月 シフト表"])
+    writer.writerow(header)
+    writer.writerows(body)
+    return response
+
+
+@login_required
+@admin_required
+def download_shift_excel(request, pk):
+    period = get_object_or_404(ShiftPeriod, pk=pk, company=request.company)
+    days, rows, header, body = _shift_export_rows(period)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "シフト表"
+    sheet.append([f"{period.month.year}年{period.month.month}月 シフト表"])
+    sheet.append(header)
+    for line in body:
+        sheet.append(line)
+    _apply_shift_export_styles(sheet, period, days, rows)
+
+    stream = BytesIO()
+    workbook.save(stream)
+    stream.seek(0)
+
+    response = HttpResponse(
+        stream.getvalue(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="shift_{period.month:%Y_%m}.xlsx"'
+    )
+    return response
 
 
 def _shift_edit_support(period, days, rows, works):
@@ -1256,15 +2077,17 @@ def _shift_edit_support(period, days, rows, works):
 
         skill = skills.get((assignment.staff_id, assignment.work_type_id))
         if not skill:
-            assignment_issues.append(
-                {
-                    "level": "warning",
-                    "day": assignment.day,
-                    "staff": assignment.staff,
-                    "message": f"{work_name}のスキルが未設定です。",
-                }
-            )
-        elif not skill.level.assignable:
+            if not assignment.staff.is_employee:
+                assignment_issues.append(
+                    {
+                        "level": "warning",
+                        "day": assignment.day,
+                        "staff": assignment.staff,
+                        "message": f"{work_name}のスキルが未設定です。",
+                    }
+                )
+            continue
+        if not skill.level.assignable:
             assignment_issues.append(
                 {
                     "level": "danger",
@@ -1303,6 +2126,237 @@ def _shift_edit_support(period, days, rows, works):
     }
 
 
+def _refresh_period_constraint_warnings(period):
+    GenerationWarning.objects.filter(
+        period=period,
+        message__startswith="制約違反：",
+    ).delete()
+    warnings = _constraint_violation_warnings(period)
+    GenerationWarning.objects.bulk_create(
+        [
+            GenerationWarning(
+                period=period,
+                day=item["day"],
+                work_type=item.get("work"),
+                message=item["message"],
+            )
+            for item in warnings
+        ]
+    )
+    period.warning_count = period.warnings.count()
+    period.save(update_fields=["warning_count"])
+    return len(warnings)
+
+
+def _constraint_violation_warnings(period):
+    assignments = list(
+        period.assignments.select_related("staff", "work_type").order_by(
+            "day", "staff__employee_number", "work_type__display_order"
+        )
+    )
+    if not assignments:
+        return []
+
+    previous_work_days = [
+        item
+        for item in DjangoShiftRepository().previous_shift_days_for_generation(
+            period.company_id, period.month
+        )
+        if item.status == PreviousMonthShiftDay.Status.WORK and item.work_id
+    ]
+    previous_assignments = [
+        {
+            "staff_id": item.staff_id,
+            "day": item.day,
+            "work_id": item.work_id,
+            "staff": None,
+            "work": None,
+        }
+        for item in previous_work_days
+    ]
+    current_assignments = [
+        {
+            "staff_id": item.staff_id,
+            "day": item.day,
+            "work_id": item.work_type_id,
+            "staff": item.staff,
+            "work": item.work_type,
+        }
+        for item in assignments
+        if item.work_type_id
+    ]
+    all_assignments = sorted(
+        [*previous_assignments, *current_assignments],
+        key=lambda item: (item["day"], item["staff_id"]),
+    )
+    current_by_staff = defaultdict(list)
+    all_by_staff = defaultdict(list)
+    current_by_day_work = defaultdict(list)
+    for item in all_assignments:
+        all_by_staff[item["staff_id"]].append(item)
+        if item["day"].year == period.month.year and item["day"].month == period.month.month:
+            current_by_staff[item["staff_id"]].append(item)
+            current_by_day_work[(item["day"], item["work_id"])].append(item)
+
+    rules = DjangoShiftRepository().rules_for_generation(period.company_id)
+    warnings = []
+    seen = set()
+
+    def add_warning(day, staff, work, message):
+        key = (day, staff.id if staff else None, work.id if work else None, message)
+        if key in seen:
+            return
+        seen.add(key)
+        warnings.append(
+            {
+                "day": day,
+                "work": work,
+                "message": f"制約違反：{staff.name if staff else ''}{message}",
+            }
+        )
+
+    for rule in rules:
+        if rule.operator == "incompatible_same_work":
+            _append_incompatible_same_work_warnings(
+                rule, current_by_day_work, add_warning
+            )
+            continue
+        if rule.staff_id is None:
+            continue
+        staff_assignments = all_by_staff[rule.staff_id]
+        current_staff_assignments = current_by_staff[rule.staff_id]
+        if not current_staff_assignments:
+            continue
+        if rule.operator == "max_consecutive":
+            _append_max_consecutive_warnings(rule, staff_assignments, add_warning)
+        elif rule.operator == "work_alternation":
+            _append_work_alternation_warnings(rule, staff_assignments, add_warning)
+        elif rule.operator == "avoid_same_work":
+            _append_avoid_same_work_warnings(rule, staff_assignments, add_warning)
+        elif rule.operator == "avoid_specific_work":
+            _append_avoid_specific_work_warnings(rule, staff_assignments, add_warning)
+        elif rule.operator == "forbid_specific_work":
+            _append_forbid_specific_work_warnings(
+                rule, current_staff_assignments, add_warning
+            )
+        elif rule.operator == "forbid_works_on_weekdays":
+            _append_forbid_works_on_weekdays_warnings(
+                rule, current_staff_assignments, add_warning
+            )
+        elif rule.operator == "no_single_rest":
+            _append_no_single_rest_warnings(rule, current_staff_assignments, add_warning)
+        elif rule.operator == "work_rest_pattern":
+            _append_work_rest_pattern_warnings(
+                rule, current_staff_assignments, period.month, add_warning
+            )
+    return warnings
+
+
+def _append_incompatible_same_work_warnings(rule, current_by_day_work, add_warning):
+    pair = {rule.staff_id, rule.related_staff_id}
+    if None in pair:
+        return
+    for (day, work_id), items in current_by_day_work.items():
+        if rule.work_ids and work_id not in rule.work_ids:
+            continue
+        staff_ids = {item["staff_id"] for item in items}
+        if pair.issubset(staff_ids):
+            target = next(item for item in items if item["staff_id"] == rule.staff_id)
+            add_warning(day, target["staff"], target["work"], "さんが同時配置禁止の相手と同じ業務に入っています。")
+
+
+def _append_max_consecutive_warnings(rule, staff_assignments, add_warning):
+    limit = rule.numeric_value or 6
+    streak = []
+    previous_day = None
+    for item in staff_assignments:
+        if previous_day and item["day"] == previous_day + timedelta(days=1):
+            streak.append(item)
+        else:
+            streak = [item]
+        previous_day = item["day"]
+        if len(streak) > limit and item["staff"]:
+            add_warning(item["day"], item["staff"], item["work"], f"さんが最大連続勤務{limit}日を超えています。")
+
+
+def _append_work_alternation_warnings(rule, staff_assignments, add_warning):
+    filtered = [item for item in staff_assignments if item["work_id"] in rule.work_ids]
+    for previous, current in zip(filtered, filtered[1:]):
+        if current["work_id"] == previous["work_id"] and current["staff"]:
+            add_warning(current["day"], current["staff"], current["work"], "さんの交互配置が崩れています。")
+
+
+def _append_avoid_same_work_warnings(rule, staff_assignments, add_warning):
+    for previous, current in zip(staff_assignments, staff_assignments[1:]):
+        if current["work_id"] == previous["work_id"] and current["staff"]:
+            add_warning(current["day"], current["staff"], current["work"], "さんが同じ業務に連続で入っています。")
+
+
+def _append_avoid_specific_work_warnings(rule, staff_assignments, add_warning):
+    for previous, current in zip(staff_assignments, staff_assignments[1:]):
+        if (
+            current["work_id"] == previous["work_id"]
+            and current["work_id"] in rule.work_ids
+            and current["staff"]
+        ):
+            add_warning(current["day"], current["staff"], current["work"], "さんが連続回避対象の業務に続けて入っています。")
+
+
+def _append_forbid_specific_work_warnings(rule, current_staff_assignments, add_warning):
+    for item in current_staff_assignments:
+        if item["work_id"] in rule.work_ids and item["staff"]:
+            add_warning(item["day"], item["staff"], item["work"], "さんが禁止業務に入っています。")
+
+
+def _append_forbid_works_on_weekdays_warnings(rule, current_staff_assignments, add_warning):
+    for item in current_staff_assignments:
+        if item["day"].weekday() not in rule.weekdays:
+            continue
+        if rule.work_ids and item["work_id"] not in rule.work_ids:
+            continue
+        if item["staff"]:
+            add_warning(item["day"], item["staff"], item["work"], "さんが禁止曜日の業務に入っています。")
+
+
+def _append_no_single_rest_warnings(rule, current_staff_assignments, add_warning):
+    worked_days = {item["day"] for item in current_staff_assignments}
+    staff_item = next((item for item in current_staff_assignments if item["staff"]), None)
+    if not staff_item:
+        return
+    start = min(worked_days)
+    end = max(worked_days)
+    current = start + timedelta(days=1)
+    while current < end:
+        if current not in worked_days and current - timedelta(days=1) in worked_days and current + timedelta(days=1) in worked_days:
+            add_warning(current, staff_item["staff"], None, "さんが単休になっています。")
+        current += timedelta(days=1)
+
+
+def _append_work_rest_pattern_warnings(rule, current_staff_assignments, month, add_warning):
+    pattern = _work_rest_pattern(rule.text_value)
+    if not pattern:
+        return
+    for item in current_staff_assignments:
+        index = (item["day"].day - 1) % len(pattern)
+        if not pattern[index] and item["staff"]:
+            add_warning(item["day"], item["staff"], item["work"], "さんが勤務・休みパターンの休み日に入っています。")
+
+
+def _work_rest_pattern(value):
+    try:
+        counts = [int(part.strip()) for part in value.replace("、", ",").split(",") if part.strip()]
+    except ValueError:
+        return ()
+    pattern = []
+    working = True
+    for count in counts:
+        if count < 1:
+            return ()
+        pattern.extend([working] * count)
+        working = not working
+    return tuple(pattern)
+
+
 def _replacement_candidates(period, leave_request):
     # 急な休み申請の代替候補。
     # すでに同日に勤務が入っている人、勤務不可の人、対象業務にアサイン不可の人は候補から外す。
@@ -1323,11 +2377,18 @@ def _replacement_candidates(period, leave_request):
             Q(available=False) | Q(preferred_off=True) | Q(paid_leave=True)
         ).values_list("submission__staff_id", flat=True)
     )
-    skill_staff_ids = set(
+    assignable_skill_staff_ids = set(
         StaffSkill.objects.filter(
             staff__company=period.company,
             work_type=leave_request.work_type,
             level__assignable=True,
+        ).values_list("staff_id", flat=True)
+    )
+    unassignable_skill_staff_ids = set(
+        StaffSkill.objects.filter(
+            staff__company=period.company,
+            work_type=leave_request.work_type,
+            level__assignable=False,
         ).values_list("staff_id", flat=True)
     )
     monthly_work_counts = dict(
@@ -1343,7 +2404,9 @@ def _replacement_candidates(period, leave_request):
             continue
         if staff.id in unavailable_staff_ids:
             continue
-        if staff.id not in skill_staff_ids:
+        if staff.id in unassignable_skill_staff_ids:
+            continue
+        if staff.id not in assignable_skill_staff_ids and not staff.is_employee:
             continue
         candidates.append(
             {
@@ -1381,8 +2444,8 @@ def shift_detail(request, pk):
     # 管理者の「シフト表」画面。
     # templates/shifts/shift_detail.html に days / rows を渡す。
     period = get_object_or_404(ShiftPeriod, pk=pk, company=request.company)
-    days, rows = _period_rows(period)
     works = list(WorkType.objects.filter(company=request.company, active=True))
+    days, rows = _period_rows(period, works)
     daily_work_stats = _attach_shift_statistics(rows, days, works)
     can_edit_shift = period.status in {
         ShiftPeriod.Status.DRAFT,
@@ -1424,10 +2487,19 @@ def update_shift_draft(request, pk):
         str(work.id): work
         for work in WorkType.objects.filter(company=request.company, active=True)
     }
-    staff_list = Staff.objects.filter(company=request.company, active=True)
+    staff_list = list(Staff.objects.filter(company=request.company, active=True))
+    disallowed_work_ids = defaultdict(set)
+    for skill in StaffSkill.objects.filter(
+        staff__company=request.company,
+        staff__in=staff_list,
+        work_type_id__in=[work.id for work in works.values()],
+        level__assignable=False,
+    ).select_related("level"):
+        disallowed_work_ids[skill.staff_id].add(str(skill.work_type_id))
     day_count = calendar.monthrange(period.month.year, period.month.month)[1]
     days = [period.month.replace(day=number) for number in range(1, day_count + 1)]
     changed_count = 0
+    skipped_count = 0
 
     for staff in staff_list:
         for current in days:
@@ -1451,6 +2523,9 @@ def update_shift_draft(request, pk):
             work = works.get(selected_work_id)
             if not work:
                 continue
+            if selected_work_id in disallowed_work_ids[staff.id]:
+                skipped_count += 1
+                continue
 
             if assignment:
                 if (
@@ -1471,7 +2546,13 @@ def update_shift_draft(request, pk):
                 )
                 changed_count += 1
 
-    messages.success(request, f"シフトを保存しました。（変更{changed_count}件）")
+    constraint_warning_count = _refresh_period_constraint_warnings(period)
+    message = f"シフトを保存しました。（変更{changed_count}件）"
+    if skipped_count:
+        message += f" 不可スキルの業務{skipped_count}件は反映しませんでした。"
+    if constraint_warning_count:
+        message += f" 制約違反の警告{constraint_warning_count}件を確認してください。"
+    messages.success(request, message)
     return redirect("shift_detail", pk=pk)
 
 

@@ -68,9 +68,24 @@ urlpatterns = [
         name="download_import_sample",
     ),
     path("manager/import/", views.import_skill_map, name="import_skill_map"),
+    path(
+        "manager/previous-shifts/",
+        views.previous_shift_list,
+        name="previous_shift_list",
+    ),
     path("manager/shifts/", views.shift_manage, name="shift_manage"),
     path("manager/shifts/generate/", views.generate_shift, name="generate_shift"),
     path("manager/shifts/<int:pk>/", views.shift_detail, name="shift_detail"),
+    path(
+        "manager/shifts/<int:pk>/download.xlsx/",
+        views.download_shift_excel,
+        name="download_shift_excel",
+    ),
+    path(
+        "manager/shifts/<int:pk>/download.csv/",
+        views.download_shift_csv,
+        name="download_shift_csv",
+    ),
     path(
         "manager/shifts/<int:pk>/edit/",
         views.update_shift_draft,

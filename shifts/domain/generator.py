@@ -10,6 +10,7 @@ from .entities import (
     ConstraintRule,
     GenerationResult,
     GenerationWarningData,
+    PreviousShiftDay,
     SkillRating,
     StaffMember,
     Work,
@@ -47,6 +48,7 @@ class MonthlyShiftGenerator:
         skills: Iterable[SkillRating],
         availability: Iterable[Availability],
         constraints: Iterable[ConstraintRule] = (),
+        previous_shift_days: Iterable[PreviousShiftDay] = (),
     ) -> GenerationResult:
         month = month.replace(day=1)
         staff_list = list(staff)
@@ -60,11 +62,17 @@ class MonthlyShiftGenerator:
         )
         availability_map = {(item.staff_id, item.day): item for item in availability}
         rules = list(constraints)
+        previous_days = sorted(previous_shift_days, key=lambda item: item.day)
+        pattern_anchor_by_staff = self._latest_public_holidays(previous_days)
         total_assignments: Counter[int] = Counter()
         work_assignments: Counter[tuple[int, int]] = Counter()
-        last_work: dict[int, int] = {}
+        last_work: dict[int, int] = self._latest_work_by_staff(previous_days)
         assigned_by_day: set[tuple[int, date]] = set()
-        assignments: list[Assignment] = []
+        assignments: list[Assignment] = [
+            Assignment(item.staff_id, item.work_id, item.day)
+            for item in previous_days
+            if item.status == "work" and item.work_id
+        ]
         warnings: list[GenerationWarningData] = []
 
         for current in self._days_in_month(month):
@@ -89,6 +97,7 @@ class MonthlyShiftGenerator:
                 work_assignments=work_assignments,
                 assignable_work_counts=assignable_work_counts,
                 eligible_staff_counts=eligible_staff_counts,
+                pattern_anchor_by_staff=pattern_anchor_by_staff,
             )
             self._fill_daily_remaining_slots(
                 current=current,
@@ -106,8 +115,28 @@ class MonthlyShiftGenerator:
                 work_assignments=work_assignments,
                 assignable_work_counts=assignable_work_counts,
                 eligible_staff_counts=eligible_staff_counts,
+                pattern_anchor_by_staff=pattern_anchor_by_staff,
             )
-        return GenerationResult(tuple(assignments), tuple(warnings))
+        current_month_assignments = tuple(
+            item for item in assignments if item.day >= month
+        )
+        return GenerationResult(current_month_assignments, tuple(warnings))
+
+    @staticmethod
+    def _latest_public_holidays(previous_days):
+        result = {}
+        for item in previous_days:
+            if item.status == "public_holiday":
+                result[item.staff_id] = item.day
+        return result
+
+    @staticmethod
+    def _latest_work_by_staff(previous_days):
+        result = {}
+        for item in previous_days:
+            if item.status == "work" and item.work_id:
+                result[item.staff_id] = item.work_id
+        return result
 
     @staticmethod
     def _days_in_month(month: date):
@@ -134,6 +163,7 @@ class MonthlyShiftGenerator:
         work_assignments,
         assignable_work_counts,
         eligible_staff_counts,
+        pattern_anchor_by_staff,
     ):
         """各業務にまず最低1人ずつ配置する。"""
 
@@ -152,6 +182,7 @@ class MonthlyShiftGenerator:
                 current,
                 assignments,
                 rules,
+                pattern_anchor_by_staff,
             ):
                 work = work_by_id[work_id]
                 candidates = cls._work_candidates(
@@ -168,6 +199,7 @@ class MonthlyShiftGenerator:
                     work_assignments,
                     assignable_work_counts,
                     eligible_staff_counts,
+                    pattern_anchor_by_staff,
                 )
 
                 if not candidates:
@@ -219,6 +251,7 @@ class MonthlyShiftGenerator:
         work_assignments,
         assignable_work_counts,
         eligible_staff_counts,
+        pattern_anchor_by_staff,
     ):
         """最低1人を確保したあと、各業務の残り必要人数を埋める。"""
 
@@ -236,6 +269,7 @@ class MonthlyShiftGenerator:
                 current,
                 assignments,
                 rules,
+                pattern_anchor_by_staff,
             ):
                 work = work_by_id[work_id]
                 candidates = cls._work_candidates(
@@ -252,6 +286,7 @@ class MonthlyShiftGenerator:
                     work_assignments,
                     assignable_work_counts,
                     eligible_staff_counts,
+                    pattern_anchor_by_staff,
                 )
 
                 if not candidates:
@@ -297,6 +332,7 @@ class MonthlyShiftGenerator:
         current,
         assignments,
         rules,
+        pattern_anchor_by_staff=None,
     ):
         return sorted(
             work_ids,
@@ -310,6 +346,7 @@ class MonthlyShiftGenerator:
                     current,
                     assignments,
                     rules,
+                    pattern_anchor_by_staff,
                 ),
                 work_by_id[work_id].display_order,
                 work_by_id[work_id].id,
@@ -363,12 +400,16 @@ class MonthlyShiftGenerator:
         work_assignments,
         assignable_work_counts,
         eligible_staff_counts,
+        pattern_anchor_by_staff,
     ):
         assigned_same_work = {
             item.staff_id
             for item in assignments
             if item.day == current and item.work_id == work.id
         }
+        instructor_assigned = cls._has_instructor_assigned(
+            assigned_same_work, work.id, skill_map
+        )
         candidates = []
         for member in staff_list:
             available = availability_map.get((member.id, current))
@@ -386,6 +427,8 @@ class MonthlyShiftGenerator:
                 or (member.id, current) in assigned_by_day
             ):
                 continue
+            if rating.trainee and not instructor_assigned:
+                continue
             if (
                 cls._consecutive_days(member.id, current, assignments)
                 >= member.max_consecutive_days
@@ -398,6 +441,7 @@ class MonthlyShiftGenerator:
                 assigned_same_work,
                 assignments,
                 rules,
+                pattern_anchor_by_staff,
             )
             if not allowed:
                 continue
@@ -431,6 +475,15 @@ class MonthlyShiftGenerator:
         return candidates
 
     @staticmethod
+    def _has_instructor_assigned(staff_ids, work_id, skill_map) -> bool:
+        return any(
+            (rating := skill_map.get((staff_id, work_id)))
+            and rating.assignable
+            and rating.instructor_capable
+            for staff_id in staff_ids
+        )
+
+    @staticmethod
     def _assign_candidate(
         candidate,
         current,
@@ -454,7 +507,14 @@ class MonthlyShiftGenerator:
 
     @classmethod
     def _evaluate_rules(
-        cls, staff_id, work_id, current, assigned_same_work, assignments, rules
+        cls,
+        staff_id,
+        work_id,
+        current,
+        assigned_same_work,
+        assignments,
+        rules,
+        pattern_anchor_by_staff=None,
     ):
         penalty = 0
         for rule in rules:
@@ -500,7 +560,10 @@ class MonthlyShiftGenerator:
             elif rule.operator == "work_rest_pattern":
                 pattern = cls._work_rest_pattern(rule.text_value)
                 if pattern:
-                    violated = not pattern[(current.day - 1) % len(pattern)]
+                    index = cls._work_rest_pattern_index(
+                        staff_id, current, pattern, pattern_anchor_by_staff or {}
+                    )
+                    violated = not pattern[index]
             if violated and cls._is_blocking_rule(rule):
                 return False, penalty
             if violated:
@@ -565,6 +628,13 @@ class MonthlyShiftGenerator:
         return tuple(pattern)
 
     @staticmethod
+    def _work_rest_pattern_index(staff_id, current, pattern, pattern_anchor_by_staff):
+        anchor = pattern_anchor_by_staff.get(staff_id)
+        if anchor and current > anchor:
+            return ((current - anchor).days - 1) % len(pattern)
+        return (current.day - 1) % len(pattern)
+
+    @staticmethod
     def _last_work_in(staff_id, work_ids, assignments):
         for item in reversed(assignments):
             if item.staff_id == staff_id and (not work_ids or item.work_id in work_ids):
@@ -593,6 +663,7 @@ class MonthlyShiftGenerator:
         current,
         assignments,
         rules,
+        pattern_anchor_by_staff=None,
     ) -> int:
         count = 0
         assigned_same_work = {
@@ -600,6 +671,9 @@ class MonthlyShiftGenerator:
             for item in assignments
             if item.day == current and item.work_id == work.id
         }
+        instructor_assigned = cls._has_instructor_assigned(
+            assigned_same_work, work.id, skill_map
+        )
         for member in staff_list:
             available = availability_map.get((member.id, current))
             rating = skill_map.get((member.id, work.id))
@@ -613,13 +687,21 @@ class MonthlyShiftGenerator:
                 or (member.id, current) in assigned_by_day
             ):
                 continue
+            if rating.trainee and not instructor_assigned:
+                continue
             if (
                 cls._consecutive_days(member.id, current, assignments)
                 >= member.max_consecutive_days
             ):
                 continue
             allowed, _penalty = cls._evaluate_rules(
-                member.id, work.id, current, assigned_same_work, assignments, rules
+                member.id,
+                work.id,
+                current,
+                assigned_same_work,
+                assignments,
+                rules,
+                pattern_anchor_by_staff,
             )
             if allowed:
                 count += 1

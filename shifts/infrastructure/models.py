@@ -1,11 +1,17 @@
 from django.conf import settings
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 
 class Company(models.Model):
     name = models.CharField("企業名", max_length=150)
     code = models.SlugField("企業コード", max_length=50, unique=True)
+    default_desired_off_limit = models.PositiveSmallIntegerField(
+        "公有給希望上限",
+        default=4,
+        validators=[MinValueValidator(0)],
+        help_text="新しく追加されるスタッフへ自動反映する、公休希望と有給希望の合計上限です。",
+    )
     active = models.BooleanField("有効", default=True)
 
     class Meta:
@@ -70,6 +76,11 @@ class Staff(models.Model):
         validators=[MinValueValidator(0)],
         help_text="公休希望と有給希望を合わせて申請できる上限日数です。",
     )
+    is_employee = models.BooleanField(
+        "社員タグ",
+        default=False,
+        help_text="人手不足時に応援投入する社員です。手動編集ではスキル未設定警告を出しません。",
+    )
     note = models.TextField("備考", blank=True)
     active = models.BooleanField("有効", default=True)
 
@@ -95,6 +106,18 @@ class WorkType(models.Model):
     display_order = models.PositiveIntegerField("表示順", default=0)
     required_staff_per_day = models.PositiveSmallIntegerField(
         "必要人数", default=1, validators=[MinValueValidator(1)]
+    )
+    color = models.CharField(
+        "表示色",
+        max_length=7,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r"^#[0-9A-Fa-f]{6}$",
+                message="色は #RRGGBB 形式で入力してください。",
+            )
+        ],
+        help_text="例：#2563eb。未入力なら標準色で表示します。",
     )
     active = models.BooleanField("有効", default=True)
 
@@ -413,6 +436,44 @@ class ShiftAssignment(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["period", "staff", "day"], name="unique_period_staff_day"
+            )
+        ]
+
+
+class PreviousMonthShiftDay(models.Model):
+    class Status(models.TextChoices):
+        WORK = "work", "勤務"
+        PUBLIC_HOLIDAY = "public_holiday", "公休"
+        PAID_LEAVE = "paid_leave", "有給"
+        BLANK = "blank", "未入力"
+
+    company = models.ForeignKey(
+        Company, related_name="previous_shift_days", on_delete=models.CASCADE
+    )
+    staff = models.ForeignKey(
+        Staff, related_name="previous_shift_days", on_delete=models.CASCADE
+    )
+    day = models.DateField("日付")
+    status = models.CharField("区分", max_length=20, choices=Status.choices)
+    work_type = models.ForeignKey(
+        WorkType,
+        verbose_name="業務",
+        related_name="previous_shift_days",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    raw_value = models.CharField("取込値", max_length=100, blank=True)
+    imported_at = models.DateTimeField("取込日時", auto_now=True)
+
+    class Meta:
+        verbose_name = "先月シフト実績"
+        verbose_name_plural = "先月シフト実績"
+        ordering = ["staff__employee_number", "day"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "staff", "day"],
+                name="unique_previous_shift_company_staff_day",
             )
         ]
 

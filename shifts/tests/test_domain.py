@@ -4,6 +4,7 @@ from unittest import TestCase
 from shifts.domain.entities import (
     Availability,
     ConstraintRule,
+    PreviousShiftDay,
     SkillRating,
     StaffMember,
     Work,
@@ -62,6 +63,28 @@ class MonthlyShiftGeneratorTests(TestCase):
             [(1, 10), (2, 20), (3, 10), (4, 20)],
         )
 
+    def test_alternation_uses_previous_month_last_work(self):
+        month = date(2026, 7, 1)
+        staff = [StaffMember(1, "A")]
+        works = [Work(10, "ロール", 1, 1), Work(20, "エーカス", 1, 2)]
+        skills = [SkillRating(1, 10, 1, True), SkillRating(1, 20, 1, True)]
+        availability = [Availability(1, month, True)]
+        rules = [
+            ConstraintRule(
+                "work_alternation", staff_id=1, work_ids=(10, 20), is_hard=True
+            )
+        ]
+        previous = [PreviousShiftDay(1, date(2026, 6, 30), "work", 10)]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability, rules, previous
+        )
+
+        self.assertEqual(
+            [(item.day.day, item.work_id) for item in result.assignments],
+            [(1, 20)],
+        )
+
     def test_places_at_least_one_staff_on_each_work_before_extra_slots(self):
         month = date(2026, 2, 1)
         staff = [
@@ -84,6 +107,51 @@ class MonthlyShiftGeneratorTests(TestCase):
             item.work_id for item in result.assignments if item.day == month
         }
         self.assertEqual(day_one_work_ids, {10, 20})
+
+    def test_trainee_is_assigned_only_with_instructor_on_same_work(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "指導者"), StaffMember(2, "研修中")]
+        works = [Work(10, "受付", 2)]
+        skills = [
+            SkillRating(
+                1,
+                10,
+                1,
+                True,
+                instructor_capable=True,
+            ),
+            SkillRating(
+                2,
+                10,
+                3,
+                True,
+                trainee=True,
+            ),
+        ]
+        availability = [Availability(1, month, True), Availability(2, month, True)]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability
+        )
+
+        self.assertEqual(
+            sorted((item.staff_id, item.work_id) for item in result.assignments),
+            [(1, 10), (2, 10)],
+        )
+
+    def test_trainee_is_not_assigned_without_instructor(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "研修中")]
+        works = [Work(10, "受付", 1)]
+        skills = [SkillRating(1, 10, 3, True, trainee=True)]
+        availability = [Availability(1, month, True)]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability
+        )
+
+        self.assertFalse(result.assignments)
+        self.assertTrue(result.warnings)
 
     def test_incompatible_staff_are_not_assigned_to_same_work(self):
         month = date(2026, 2, 1)
@@ -196,6 +264,27 @@ class MonthlyShiftGeneratorTests(TestCase):
             month, staff, works, skills, availability, rules
         )
         self.assertEqual([item.day.day for item in result.assignments], [1, 2, 4, 5])
+
+    def test_work_rest_pattern_uses_previous_month_last_public_holiday(self):
+        month = date(2026, 7, 1)
+        staff = [StaffMember(1, "A", max_consecutive_days=10)]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [
+            Availability(1, month.replace(day=d), True) for d in range(1, 4)
+        ]
+        rules = [
+            ConstraintRule(
+                "work_rest_pattern", staff_id=1, text_value="2,1", strength=10
+            )
+        ]
+        previous = [PreviousShiftDay(1, date(2026, 6, 30), "public_holiday")]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability, rules, previous
+        )
+
+        self.assertEqual([item.day.day for item in result.assignments], [1, 2])
 
     def test_prevents_single_rest_between_work_days(self):
         month = date(2026, 2, 1)

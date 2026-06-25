@@ -5,6 +5,7 @@ from shifts.domain.entities import (
     Availability,
     ConstraintRule,
     GenerationResult,
+    PreviousShiftDay,
     SkillRating,
     StaffMember,
     Work,
@@ -19,6 +20,9 @@ class ShiftRepository(Protocol):
     def availability_for_generation(
         self, company_id: int, month: date
     ) -> list[Availability]: ...
+    def previous_shift_days_for_generation(
+        self, company_id: int, month: date
+    ) -> list[PreviousShiftDay]: ...
     def rules_for_generation(self, company_id: int) -> list[ConstraintRule]: ...
     def save_generation(
         self, company_id: int, month: date, result: GenerationResult
