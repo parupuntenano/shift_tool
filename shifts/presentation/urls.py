@@ -11,6 +11,11 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("", views.home, name="home"),
     path("manager/dashboard/", views.manager_dashboard, name="manager_dashboard"),
+    path(
+        "manager/dashboard/missing-submissions/",
+        views.missing_submissions,
+        name="missing_submissions",
+    ),
     path("manager/staff/", views.staff_manage, name="staff_manage"),
     path("manager/staff/<int:pk>/edit/", views.staff_edit, name="staff_edit"),
     path("manager/staff/<int:pk>/delete/", views.staff_delete, name="staff_delete"),
@@ -66,6 +71,16 @@ urlpatterns = [
         "manager/import/sample/",
         views.download_import_sample,
         name="download_import_sample",
+    ),
+    path(
+        "manager/import/csv-template/",
+        views.download_csv_template,
+        name="download_csv_template",
+    ),
+    path(
+        "manager/import/csv-sample/",
+        views.download_csv_sample,
+        name="download_csv_sample",
     ),
     path("manager/import/", views.import_skill_map, name="import_skill_map"),
     path(

@@ -10,14 +10,17 @@
       <p class="draft-edit-note">希望上限：公休・有給あわせて{{ desired_off_limit }}日まで
       </p>
       {% if suggested_off_count %}
-        <p class="draft-edit-note">個別制約から休み希望候補を{{ suggested_off_count }}日分見つけました。</p>
+        <p class="draft-edit-note">
+          過去実績・勤務ルールから休み希望候補を{{ suggested_off_count }}日分見つけました。
+          自動入力は上限内の{{ auto_fill_off_count }}日分まで反映します。
+        </p>
       {% endif %}
     </div>
     <div class="page-actions">
       {% if suggested_off_count %}
         <a class="btn btn-outline-primary" href="{% url 'submit_availability' %}?month={{ month|date:'Y-m' }}&apply_constraints=1">
           <i class="bi bi-magic"></i>
-          制約から休み希望を自動入力
+          候補から休み希望を自動入力
         </a>
       {% endif %}
       <span class="status {{ submission.status }} large">{{ submission.get_status_display }}</span>
@@ -32,7 +35,7 @@
         <small>公休希望と有給希望の合計が上限を超えると提出できません。（上限を超えて申請する場合は担当者に直接問い合わせください。）</small>
         {% if rest_constraint_notes %}
           <div class="staff-rest-constraints">
-            <strong>あなたの制約</strong>
+            <strong>あなたの勤務ルール</strong>
             <ul>
               {% for rule in rest_constraint_notes %}
                 <li>
@@ -87,7 +90,10 @@
             >有給希望</option>
           </select>
           {% if item.suggested_off %}
-            <small class="constraint-suggestion">制約候補</small>
+            <small class="constraint-suggestion">
+              {% if item.suggestion_label %}{{ item.suggestion_label }}候補{% else %}候補{% endif %}
+              {% if not item.auto_fill_off %}<span>上限外</span>{% endif %}
+            </small>
           {% endif %}
         </article>
       {% endfor %}

@@ -134,6 +134,9 @@ class ConstraintTypeForm(forms.ModelForm):
     class Meta:
         model = ConstraintType
         fields = ["name", "operator", "description", "default_strength", "active"]
+        labels = {
+            "name": "ルール種別名",
+        }
         widgets = {
             "default_strength": forms.NumberInput(attrs={"min": 1, "max": 10}),
         }
@@ -177,6 +180,10 @@ class ConstraintForm(forms.ModelForm):
             "strength",
             "active",
         ]
+        labels = {
+            "rule_type": "ルール種別",
+            "name": "ルール名",
+        }
         widgets = {
             "strength": forms.NumberInput(attrs={"min": 1, "max": 10}),
         }

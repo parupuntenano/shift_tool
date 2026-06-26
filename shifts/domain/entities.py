@@ -55,6 +55,10 @@ class ConstraintRule:
     weekdays: tuple[int, ...] = ()
     is_hard: bool = True
     strength: int | None = None
+    name: str = ""
+    rule_type_name: str = ""
+    related_staff_name: str = ""
+    work_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -5,22 +5,22 @@
   <header class="page-header">
     <div>
       <span class="kicker">RULES</span>
-      <h1>個別制約条件</h1>
-      <p>条件種別と対象を管理者が指定し、月間シフトの生成へ反映します。</p>
+      <h1>勤務ルール</h1>
+      <p>スタッフごとの働き方ルールを管理し、月間シフトの生成へ反映します。</p>
     </div>
     <a class="btn btn-outline-primary" href="{% url 'constraint_type_manage' %}">
-      <i class="bi bi-gear"></i> 条件種別を管理</a>
+      <i class="bi bi-gear"></i> ルール種別を管理</a>
   </header>
 
   {% if not has_rule_types %}
-    <div class="alert alert-warning">先に「条件種別を管理」から、使用する条件種別を登録してください。</div>
+    <div class="alert alert-warning">先に「ルール種別を管理」から、使用するルール種別を登録してください。</div>
   {% endif %}
 
   <div class="content-grid">
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2>登録済み制約の検索</h2>
+          <h2>登録済みルールの検索</h2>
           <p>スタッフ名または社員番号で絞り込めます。</p>
         </div>
         <span class="result-count">{{ items|length }}件</span>
@@ -43,8 +43,8 @@
           <thead>
             <tr>
               <th>対象</th>
-              <th>条件名</th>
-              <th>条件種別</th>
+              <th>ルール名</th>
+              <th>ルール種別</th>
               <th>設定内容</th>
               <th>強度</th>
               <th>操作</th>
@@ -125,9 +125,9 @@
               <tr>
                 <td colspan="6" class="empty">
                   {% if query %}
-                    「{{ query }}」に一致するスタッフの制約条件はありません。
+                    「{{ query }}」に一致するスタッフの勤務ルールはありません。
                   {% else %}
-                    制約条件が未登録です。
+                    勤務ルールが未登録です。
                   {% endif %}
                 </td>
               </tr>
@@ -139,9 +139,9 @@
     <aside class="panel form-panel">
       <h2>
         {% if editing_item %}
-          条件を編集
+          ルールを編集
         {% else %}
-          条件を追加
+          ルールを追加
         {% endif %}
       </h2>
       <div class="rule-guide">

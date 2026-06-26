@@ -358,3 +358,111 @@ class MasterImportTests(DjangoTestCase):
             ).exists()
         )
         self.assertTrue(constraints.filter(name="手入力メモ").exists())
+
+
+class ShiftRepositoryAvailabilityTests(DjangoTestCase):
+    def test_unsubmitted_staff_is_available_with_weekly_public_holidays(self):
+        company = Company.objects.create(name="テスト", code="auto-availability-test")
+        staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
+
+        rows = DjangoShiftRepository().availability_for_generation(
+            company.id, date(2026, 7, 1)
+        )
+
+        staff_rows = [row for row in rows if row.staff_id == staff.id]
+        weekly_off_numbers = [row.day.day for row in staff_rows if row.preferred_off]
+        expected_first_off = (staff.id - 1) % 7 + 1
+        self.assertEqual(len(staff_rows), 31)
+        self.assertTrue(all(row.available for row in staff_rows))
+        self.assertEqual(
+            weekly_off_numbers,
+            list(range(expected_first_off, 32, 7)),
+        )
+
+    def test_unsubmitted_staff_public_holidays_follow_previous_month_result(self):
+        company = Company.objects.create(name="テスト", code="previous-off-test")
+        staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
+        PreviousMonthShiftDay.objects.create(
+            company=company,
+            staff=staff,
+            day=date(2026, 6, 30),
+            status=PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY,
+        )
+
+        rows = DjangoShiftRepository().availability_for_generation(
+            company.id, date(2026, 7, 1)
+        )
+
+        weekly_off_numbers = [
+            row.day.day for row in rows if row.staff_id == staff.id and row.preferred_off
+        ]
+        self.assertEqual(weekly_off_numbers, [7, 14, 21, 28])
+
+    def test_unsubmitted_staff_rest_pattern_uses_previous_month_result(self):
+        company = Company.objects.create(name="テスト", code="previous-pattern-test")
+        staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
+        rule_type = ConstraintType.objects.create(
+            company=company,
+            name="勤休パターン",
+            operator=ConstraintType.Operator.WORK_REST_PATTERN,
+            default_strength=5,
+            default_is_hard=False,
+        )
+        IndividualConstraint.objects.create(
+            company=company,
+            staff=staff,
+            rule_type=rule_type,
+            name="青木：2勤1休",
+            kind=rule_type.operator,
+            text_value="2,1",
+            strength=5,
+            is_hard=False,
+        )
+        work = WorkType.objects.create(company=company, name="受付")
+        PreviousMonthShiftDay.objects.create(
+            company=company,
+            staff=staff,
+            day=date(2026, 6, 29),
+            status=PreviousMonthShiftDay.Status.WORK,
+            work_type=work,
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=company,
+            staff=staff,
+            day=date(2026, 6, 30),
+            status=PreviousMonthShiftDay.Status.WORK,
+            work_type=work,
+        )
+
+        rows = DjangoShiftRepository().availability_for_generation(
+            company.id, date(2026, 7, 1)
+        )
+
+        off_numbers = [
+            row.day.day for row in rows if row.staff_id == staff.id and row.preferred_off
+        ]
+        self.assertEqual(off_numbers[:3], [1, 4, 7])
+
+    def test_submitted_staff_request_is_not_overwritten_by_auto_holidays(self):
+        company = Company.objects.create(name="テスト", code="submitted-availability-test")
+        staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
+        submission = AvailabilitySubmission.objects.create(
+            staff=staff,
+            month=date(2026, 7, 1),
+            status=AvailabilitySubmission.Status.SUBMITTED,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 2),
+            available=True,
+            preferred_off=True,
+        )
+
+        rows = DjangoShiftRepository().availability_for_generation(
+            company.id, date(2026, 7, 1)
+        )
+
+        off_numbers = [
+            row.day.day for row in rows if row.staff_id == staff.id and row.preferred_off
+        ]
+        self.assertEqual(off_numbers, [2])

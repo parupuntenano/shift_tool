@@ -36,18 +36,19 @@
       </span>
       <div>
         <strong>{{ submission_rate }}%</strong>
-        <small>シフト提出率（{{ submitted_count }}/{{ staff_count }}名）</small>
+        <small>シフト提出率（{{ submitted_count }}/{{ staff_count }}名・社員タグ除外）</small>
       </div>
     </div>
-    <div class="metric-card">
+    <a class="metric-card metric-link"
+       href="{% url 'missing_submissions' %}?month={{ month|date:'Y-m' }}">
       <span class="metric-icon orange">
         <i class="bi bi-person-x"></i>
       </span>
       <div>
         <strong>{{ missing_count }}</strong>
-        <small>未提出人数</small>
+        <small>未提出人数を見る</small>
       </div>
-    </div>
+    </a>
     <div class="metric-card">
       <span class="metric-icon blue">
         <i class="bi bi-magic"></i>
@@ -150,7 +151,7 @@
       <a href="{% url 'skill_map' %}">
         <i class="bi bi-stars"></i>スタッフスキル編集</a>
       <a href="{% url 'constraint_manage' %}">
-        <i class="bi bi-sliders"></i>個別制約条件管理</a>
+        <i class="bi bi-sliders"></i>勤務ルール管理</a>
     </aside>
   </section>
 

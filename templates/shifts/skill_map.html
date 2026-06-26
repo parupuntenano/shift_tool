@@ -23,15 +23,6 @@
       <span class="result-count" id="matrix-result-count">{{ staff_rows|length }}名</span>
     </div>
     <form method="get" class="skill-search" id="matrix-search-form">
-      {% if delete_query %}
-        <input type="hidden" name="delete_q" value="{{ delete_query }}">
-      {% endif %}
-      {% if work_filter %}
-        <input type="hidden" name="work" value="{{ work_filter }}">
-      {% endif %}
-      {% if level_filter %}
-        <input type="hidden" name="level" value="{{ level_filter }}">
-      {% endif %}
       <div class="search-keyword">
         <i class="bi bi-search"></i>
         <input type="search" name="matrix_q" value="{{ matrix_query }}" placeholder="社員番号・氏名で検索">
@@ -60,9 +51,11 @@
           <tbody>
             {% for row in staff_rows %}
               <tr data-matrix-row data-search="{{ row.staff.employee_number }} {{ row.staff.name }}">
-                <td class="sticky-col">
-                  <small>{{ row.staff.employee_number }}</small>
-                  <strong>{{ row.staff.name }}</strong>
+                <td class="sticky-col staff-name-sticky">
+                  <span class="staff-inline-name">
+                    <small>{{ row.staff.employee_number }}</small>
+                    <strong>{{ row.staff.name }}</strong>
+                  </span>
                 </td>
                 {% for cell in row.cells %}
                   <td>
@@ -102,108 +95,6 @@
     </form>
   </section>
 
-  <section class="panel mt-4">
-    <div class="panel-head">
-      <div>
-        <h2>登録済みスキルの削除</h2>
-        <p>条件で絞り込み、複数件をまとめて削除できます。</p>
-      </div>
-      <span class="result-count" id="delete-result-count">{{ skill_entries|length }}件</span>
-    </div>
-    <form method="get" class="skill-search" id="delete-search-form">
-      {% if matrix_query %}
-        <input type="hidden" name="matrix_q" value="{{ matrix_query }}">
-      {% endif %}
-      <div class="search-keyword">
-        <i class="bi bi-search"></i>
-        <input type="search" name="delete_q" value="{{ delete_query }}" placeholder="社員番号・氏名・業務名・スキルで検索">
-      </div>
-      <select name="work" aria-label="業務で絞り込み">
-        <option value="">すべての業務</option>
-        {% for work in works %}
-          <option value="{{ work.pk }}"
-                  {% if work_filter == work.pk|stringformat:'s' %}
-                    selected
-                  {% endif %}
-          >{{ work.name }}</option>
-        {% endfor %}
-      </select>
-      <select name="level" aria-label="スキル区分で絞り込み">
-        <option value="">すべてのスキル</option>
-        {% for level in skill_levels %}
-          <option value="{{ level.pk }}"
-                  {% if level_filter == level.pk|stringformat:'s' %}
-                    selected
-                  {% endif %}
-          >{{ level.symbol }} {{ level.meaning }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-primary">検索</button>
-      <button class="btn btn-light" type="button" id="delete-clear-button" {% if not delete_query and not work_filter and not level_filter %}hidden{% endif %}>クリア</button>
-    </form>
-    <form method="post"
-          action="{% url 'staff_skill_bulk_delete' %}"
-          id="bulk-delete-form">
-      {% csrf_token %}
-      <div class="bulk-toolbar">
-        <label>
-          <input type="checkbox" id="select-all-skills">
-          すべて選択
-        </label>
-        <span id="selected-count">0件選択</span>
-        <button class="btn btn-sm btn-outline-danger"
-                id="bulk-delete-button"
-                disabled>
-          <i class="bi bi-trash"></i>
-          選択した項目を削除
-        </button>
-      </div>
-      <div class="table-responsive skill-results">
-        <table class="table align-middle">
-          <thead>
-            <tr>
-              <th class="check-column">
-              </th>
-              <th>社員番号</th>
-              <th>スタッフ</th>
-              <th>業務</th>
-              <th>スキル</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in skill_entries %}
-              <tr data-delete-row
-                  data-search="{{ item.staff.employee_number }} {{ item.staff.name }} {{ item.work_type.name }} {{ item.level.symbol }} {{ item.level.meaning }}"
-                  data-work="{{ item.work_type.pk }}"
-                  data-level="{{ item.level.pk }}">
-                <td>
-                  <input class="skill-checkbox" type="checkbox" name="skill_ids" value="{{ item.pk }}" aria-label="{{ item.staff.name }} {{ item.work_type.name }}を選択">
-                </td>
-                <td>{{ item.staff.employee_number }}</td>
-                <td class="fw-bold">{{ item.staff.name }}</td>
-                <td>{{ item.work_type.name }}</td>
-                <td>
-                  <span class="skill-symbol">{{ item.level.symbol }}</span> {{ item.level.meaning }}</td>
-                <td>
-                  <a class="btn btn-sm btn-outline-danger" href="{% url 'staff_skill_delete' item.pk %}">
-                    <i class="bi bi-trash"></i>
-                  </a>
-                </td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td colspan="6" class="empty">条件に一致するスキル設定はありません。</td>
-              </tr>
-            {% endfor %}
-            <tr class="client-empty" id="delete-empty-row" hidden>
-              <td colspan="6" class="empty">条件に一致するスキル設定はありません。</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </form>
-  </section>
   <script>
     (() => {
       const normalize = value => (value || '').trim().toLowerCase();
@@ -245,81 +136,7 @@
         filter();
       };
 
-      const setupDeleteSearch = () => {
-        const form = document.getElementById('delete-search-form');
-        const keywordInput = form?.querySelector('[name="delete_q"]');
-        const workSelect = form?.querySelector('[name="work"]');
-        const levelSelect = form?.querySelector('[name="level"]');
-        const clear = document.getElementById('delete-clear-button');
-        const rows = [...document.querySelectorAll('[data-delete-row]')];
-        const count = document.getElementById('delete-result-count');
-        const empty = document.getElementById('delete-empty-row');
-        if (!form || !keywordInput || !workSelect || !levelSelect || !count || !empty) return;
-
-        const filter = () => {
-          const keyword = normalize(keywordInput.value);
-          const work = workSelect.value;
-          const level = levelSelect.value;
-          let visible = 0;
-
-          rows.forEach(row => {
-            const matchedKeyword = !keyword || normalize(row.dataset.search).includes(keyword);
-            const matchedWork = !work || row.dataset.work === work;
-            const matchedLevel = !level || row.dataset.level === level;
-            const matched = matchedKeyword && matchedWork && matchedLevel;
-            row.hidden = !matched;
-            if (!matched) row.querySelector('.skill-checkbox')?.checked = false;
-            if (matched) visible += 1;
-          });
-
-          count.textContent = `${visible}件`;
-          empty.hidden = visible !== 0;
-          if (clear) clear.hidden = !keyword && !work && !level;
-          window.updateSkillBulkSelection?.();
-        };
-
-        form.addEventListener('submit', event => {
-          event.preventDefault();
-          filter();
-        });
-        keywordInput.addEventListener('input', filter);
-        workSelect.addEventListener('change', filter);
-        levelSelect.addEventListener('change', filter);
-        clear?.addEventListener('click', () => {
-          keywordInput.value = '';
-          workSelect.value = '';
-          levelSelect.value = '';
-          filter();
-          keywordInput.focus();
-        });
-        filter();
-      };
-
-      const all = document.getElementById('select-all-skills');
-      const boxes = [...document.querySelectorAll('.skill-checkbox')];
-      const count = document.getElementById('selected-count');
-      const button = document.getElementById('bulk-delete-button');
-      const update = () => {
-        if (!all || !count || !button) return;
-        const visibleBoxes = boxes.filter(box => !box.closest('[data-delete-row]')?.hidden);
-        const selected = visibleBoxes.filter(box => box.checked).length;
-        count.textContent = `${selected}件選択`;
-        button.disabled = selected === 0;
-        all.disabled = visibleBoxes.length === 0;
-        all.checked = visibleBoxes.length > 0 && selected === visibleBoxes.length;
-        all.indeterminate = selected > 0 && selected < visibleBoxes.length;
-      };
-      window.updateSkillBulkSelection = update;
-      all?.addEventListener('change', () => {
-        boxes.forEach(box => {
-          if (!box.closest('[data-delete-row]')?.hidden) box.checked = all.checked;
-        });
-        update();
-      });
-      boxes.forEach(box => box.addEventListener('change', update));
       setupMatrixSearch();
-      setupDeleteSearch();
-      update();
     })();
   </script>
 

@@ -6,7 +6,7 @@
     <div>
       <span class="kicker">MONTHLY SHIFT</span>
       <h1>{{ period.month|date:'Y年n月' }} シフト表</h1>
-      <p>状態：{{ period.get_status_display }} · 警告 {{ period.warning_count }}件</p>
+      <p>状態：{{ period.get_status_display }} · 制約違反 {{ constraint_warning_count }}件</p>
       {% if can_edit_shift %}
         <p class="draft-edit-note">各セルのプルダウンから編集できます。公開後も急な休みに合わせて更新できます。</p>
       {% endif %}
@@ -52,17 +52,36 @@
       </div>
   {% endif %}
   <section class="panel shift-board">
-    <div class="table-responsive">
+    <div class="table-responsive" id="shift-table-scroll">
       <table class="table table-bordered monthly-table">
         <thead>
           <tr>
             <th class="sticky-col">氏名</th>
+            {% for day in previous_days %}
+              <th class="
+                previous-week
+                {% if day.is_non_workday %}non-workday{% endif %}
+                {% if day.is_saturday %}saturday{% endif %}
+              ">
+                <span class="day-label table-day-label">
+                  <small>前月</small>
+                  <strong>{{ day.number }}</strong>
+                  <span class="day-meta">
+                    {% if day.holiday %}
+                      <small class="holiday-name">{{ day.holiday }}</small>
+                    {% endif %}
+                    <small>{{ day.date|date:'D' }}</small>
+                  </span>
+                </span>
+              </th>
+            {% endfor %}
             {% for day in days %}
               {# non-workday / saturday は static/shifts/app.css の色分けクラス。 #}
               <th class="
                 {% if day.is_non_workday %}non-workday{% endif %}
                 {% if day.is_saturday %}saturday{% endif %}
-              ">
+              "
+                  {% if forloop.first %}id="current-month-start"{% endif %}>
                 <span class="day-label table-day-label">
                   <strong>{{ day.number }}</strong>
                   <span class="day-meta">
@@ -86,10 +105,38 @@
         <tbody>
           {% for row in rows %}
             <tr>
-              <td class="sticky-col">
-                <small>{{ row.staff.employee_number }}</small>
-                <strong>{{ row.staff.name }}</strong>
+              <td class="sticky-col staff-name-sticky">
+                <span class="staff-inline-name">
+                  <small>{{ row.staff.employee_number }}</small>
+                  <strong>{{ row.staff.name }}</strong>
+                </span>
               </td>
+              {% for cell in row.previous_cells %}
+                <td class="
+                  previous-week
+                  readonly-previous-cell
+                  {{ cell.cell_class }}
+                  {% if cell.day.is_non_workday %}non-workday{% endif %}
+                  {% if cell.day.is_saturday %}saturday{% endif %}
+                "
+                    {% if cell.work and cell.work.color %}
+                      style="--work-color: {{ cell.work.color }};"
+                    {% endif %}
+                >
+                  {% if cell.work %}
+                    <span class="work-chip"
+                          {% if cell.work.color %}style="--work-color: {{ cell.work.color }};"{% endif %}>
+                      {{ cell.label }}
+                    </span>
+                  {% elif cell.status == 'paid_leave' %}
+                    <span class="rest-chip paid-leave">{{ cell.label }}</span>
+                  {% elif cell.status == 'public_holiday' %}
+                    <span class="rest-chip inserted-public-holiday">{{ cell.label }}</span>
+                  {% else %}
+                    <span class="previous-blank">—</span>
+                  {% endif %}
+                </td>
+              {% endfor %}
               {% for cell in row.cells %}
                 {# assigned/rest は勤務か休日か、non-workday/saturday は日付色を決める。 #}
                 <td class="
@@ -118,8 +165,10 @@
                         </option>
                       {% endif %}
                     </select>
-                    {% if cell.assignment.manually_edited %}
-                      <small class="manual-edited-mark">手動</small>
+                    {% if cell.assignment %}
+                      <small class="assignment-source-mark {% if cell.assignment.manually_edited %}manual{% else %}auto{% endif %}">
+                        {% if cell.assignment.manually_edited %}手動{% else %}自動{% endif %}
+                      </small>
                     {% endif %}
                     {% if not cell.assignment %}
                       <span class="rest-chip {{ cell.rest_kind }}">{{ cell.rest_label }}</span>
@@ -138,9 +187,9 @@
                         勤務
                       {% endif %}
                     </span>
-                    {% if cell.assignment.manually_edited %}
-                      <small class="manual-edited-mark">手動</small>
-                    {% endif %}
+                    <small class="assignment-source-mark {% if cell.assignment.manually_edited %}manual{% else %}auto{% endif %}">
+                      {% if cell.assignment.manually_edited %}手動{% else %}自動{% endif %}
+                    </small>
                     {% if cell.leave_request %}
                       <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
                     {% endif %}
@@ -183,6 +232,9 @@
                   {{ stat.work.name }}
                 </span>
               </th>
+              {% for day in previous_days %}
+                <td class="previous-week readonly-previous-cell">—</td>
+              {% endfor %}
               {% for count in stat.counts %}
                 <td>{{ count }}</td>
               {% endfor %}
@@ -201,6 +253,22 @@
       </table>
     </div>
   </section>
+  <script>
+    (() => {
+      const scrollArea = document.getElementById('shift-table-scroll');
+      const target = document.getElementById('current-month-start');
+      if (!scrollArea || !target) return;
+      const scrollToCurrentMonthStart = () => {
+        const sticky = scrollArea.querySelector('.sticky-col');
+        const stickyWidth = sticky ? sticky.getBoundingClientRect().width : 0;
+        const areaLeft = scrollArea.getBoundingClientRect().left;
+        const targetLeft = target.getBoundingClientRect().left;
+        const nextScrollLeft = scrollArea.scrollLeft + targetLeft - areaLeft - stickyWidth - 8;
+        scrollArea.scrollLeft = Math.max(nextScrollLeft, 0);
+      };
+      requestAnimationFrame(() => requestAnimationFrame(scrollToCurrentMonthStart));
+    })();
+  </script>
   {% if can_edit_shift %}
     </form>
   {% endif %}
@@ -287,7 +355,7 @@
             <i class="bi bi-tools"></i>
             シフト調整サポート
           </h2>
-          <p>編集や急な休みで崩れやすい必要人数・希望休・スキル・出勤数の偏りを確認できます。</p>
+          <p>編集や急な休みで崩れやすい必要人数・希望休・スキル・公休数の超過不足を確認できます。</p>
         </div>
         {% if edit_support.has_issues %}
           <span class="status warning large">要確認</span>
@@ -322,13 +390,28 @@
         </div>
 
         <div class="support-card">
-          <h3>出勤数バランス</h3>
-          <p class="support-average">平均 {{ edit_support.average_work_count }} 日</p>
-          {% for item in edit_support.balance_rows %}
-            <div class="balance-row {{ item.status }}">
-              <span>{{ item.staff.employee_number }} {{ item.staff.name }}</span>
-              <strong>出勤{{ item.work_count }} / 休{{ item.rest_count }}</strong>
+          <h3>公休数の超過・不足</h3>
+          <p class="support-average">実績公休 / 設定公休 / 差分を表示します。</p>
+          {% for item in edit_support.public_holiday_rows %}
+            <div class="support-item public-holiday-balance {{ item.status }}">
+              <strong>{{ item.staff.employee_number }} {{ item.staff.name }}</strong>
+              <span>
+                <span class="public-holiday-count-main">
+                  公休 {{ item.actual }}/{{ item.target }}
+                </span>
+                <span class="public-holiday-count-diff">
+                  {% if item.difference > 0 %}
+                    +{{ item.difference }}
+                  {% elif item.difference < 0 %}
+                    {{ item.difference }}
+                  {% else %}
+                    ±0
+                  {% endif %}
+                </span>
+              </span>
             </div>
+          {% empty %}
+            <p class="empty">表示できるスタッフがいません。</p>
           {% endfor %}
         </div>
       </div>
@@ -339,7 +422,7 @@
     <section class="panel warnings">
       <h2>
         <i class="bi bi-exclamation-triangle"></i>
-        警告
+        制約違反
       </h2>
       {% for warning in warnings %}
         <div>

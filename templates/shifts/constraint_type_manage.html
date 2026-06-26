@@ -4,11 +4,11 @@
   <header class="page-header">
     <div>
       <span class="kicker">RULE TYPE MASTER</span>
-      <h1>条件種別管理</h1>
-      <p>企業独自の条件名を、再利用可能な判定方式へ関連付けます。</p>
+      <h1>ルール種別管理</h1>
+      <p>企業独自のルール名を、再利用可能な判定方式へ関連付けます。</p>
     </div>
     <a class="btn btn-light" href="{% url 'constraint_manage' %}">
-      <i class="bi bi-arrow-left"></i> 個別条件へ戻る</a>
+      <i class="bi bi-arrow-left"></i> 勤務ルールへ戻る</a>
   </header>
   <div class="content-grid">
     <section class="panel">
@@ -16,7 +16,7 @@
         <table class="table align-middle">
           <thead>
             <tr>
-              <th>条件種別名</th>
+              <th>ルール種別名</th>
               <th>判定方式</th>
               <th>初期強度</th>
               <th>状態</th>
@@ -48,7 +48,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="5" class="empty">条件種別が未登録です。</td>
+                <td colspan="5" class="empty">ルール種別が未登録です。</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -58,9 +58,9 @@
     <aside class="panel form-panel">
       <h2>
         {% if editing_item %}
-          条件種別を編集
+          ルール種別を編集
         {% else %}
-          条件種別を追加
+          ルール種別を追加
         {% endif %}
       </h2>
       <form method="post">
@@ -78,7 +78,7 @@
         {% endif %}
       </form>
       <p class="hint mt-3">
-        条件種別名は自由です。強度10は絶対守る、8〜9は強め、5〜7は標準、1〜4は弱めです。
+        ルール種別名は自由です。強度10は絶対守る、8〜9は強め、5〜7は標準、1〜4は弱めです。
       </p>
     </aside>
   </div>

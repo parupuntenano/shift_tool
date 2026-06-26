@@ -135,7 +135,8 @@ class Command(BaseCommand):
 
         month = timezone.localdate().replace(day=1)
         for index, name in enumerate(
-            ("青木 花", "井上 翔", "佐藤 海", "田中 陽", "山本 凛"), 1
+            ("スタッフ01", "スタッフ02", "スタッフ03", "スタッフ04", "スタッフ05"),
+            1,
         ):
             user, _ = User.objects.get_or_create(username=f"staff{index}")
             user.set_password("staff123")

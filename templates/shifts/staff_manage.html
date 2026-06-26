@@ -39,7 +39,7 @@
             {% for item in items %}
               <tr>
                 <td>{{ item.employee_number }}</td>
-                <td class="fw-bold">{{ item.name }}</td>
+                <td class="fw-bold staff-name-cell">{{ item.name }}</td>
                 <td>{{ item.user.username|default:'未設定' }}</td>
                 <td>{{ item.monthly_public_holidays }}日</td>
                 <td>{{ item.desired_off_limit }}日</td>

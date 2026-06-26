@@ -1,0 +1,104 @@
+{% extends 'shifts/base.html' %}
+
+{% block title %}
+  未提出者一覧 | ShiftFlow
+{% endblock %}
+
+{% block content %}
+
+  <header class="page-header">
+    <div>
+      <span class="kicker">{{ month|date:'Y年n月' }}</span>
+      <h1>シフト未提出者一覧</h1>
+      <p>社員タグのスタッフは提出対象から除外しています。</p>
+    </div>
+    <nav class="dashboard-month-actions" aria-label="未提出者一覧の表示月切り替え">
+      <a class="btn btn-light"
+         href="{% url 'missing_submissions' %}?month={{ prev_month|date:'Y-m' }}">
+        {{ prev_month|date:'n月' }}へ
+      </a>
+      {% if month != current_month %}
+        <a class="btn btn-outline-primary" href="{% url 'missing_submissions' %}">
+          今月へ戻る
+        </a>
+      {% endif %}
+      <a class="btn btn-primary"
+         href="{% url 'missing_submissions' %}?month={{ next_month|date:'Y-m' }}">
+        {{ next_month|date:'n月' }}へ
+      </a>
+    </nav>
+  </header>
+
+  <section class="metric-grid">
+    <div class="metric-card">
+      <span class="metric-icon purple">
+        <i class="bi bi-people"></i>
+      </span>
+      <div>
+        <strong>{{ target_staff_count }}</strong>
+        <small>提出対象人数</small>
+      </div>
+    </div>
+    <div class="metric-card">
+      <span class="metric-icon blue">
+        <i class="bi bi-send-check"></i>
+      </span>
+      <div>
+        <strong>{{ submitted_count }}</strong>
+        <small>提出済み</small>
+      </div>
+    </div>
+    <div class="metric-card">
+      <span class="metric-icon orange">
+        <i class="bi bi-person-x"></i>
+      </span>
+      <div>
+        <strong>{{ missing_count }}</strong>
+        <small>未提出</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>未提出スタッフ</h2>
+        <p>提出データがない、または下書きのままのスタッフです。</p>
+      </div>
+      <a class="btn btn-light" href="{% url 'manager_dashboard' %}?month={{ month|date:'Y-m' }}">
+        ダッシュボードへ戻る
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>社員番号</th>
+            <th>氏名</th>
+            <th>状態</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in missing_staff_rows %}
+            <tr>
+              <td>{{ item.staff.employee_number }}</td>
+              <td class="fw-bold">{{ item.staff.name }}</td>
+              <td>
+                {% if item.submission %}
+                  <span class="status draft">{{ item.submission.get_status_display }}</span>
+                {% else %}
+                  <span class="status">未提出</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="3" class="empty">未提出のスタッフはいません。</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+{% endblock %}

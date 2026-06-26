@@ -51,7 +51,7 @@
           <i class="bi bi-magic"></i>
         </span>
         <h2>シフト自動生成</h2>
-        <p>提出済みの勤務可能日、希望休、スキル、強度制の個別制約を反映します。</p>
+        <p>提出済みの勤務可能日、希望休、スキル、強度制の勤務ルールを反映します。</p>
         <form method="post" action="{% url 'generate_shift' %}">
           {% csrf_token %}
           {{ form.as_p }}

@@ -1,6 +1,11 @@
 from datetime import date
 from unittest import TestCase
 
+from shifts.application.availability_suggestions import (
+    RestRuleInput,
+    build_staff_rest_constraint_notes,
+    build_suggested_off_day_map,
+)
 from shifts.domain.entities import (
     Availability,
     ConstraintRule,
@@ -324,3 +329,38 @@ class MonthlyShiftGeneratorTests(TestCase):
             month, staff, works, skills, availability, rules
         )
         self.assertNotIn(6, [item.day.day for item in result.assignments])
+
+
+class AvailabilitySuggestionTests(TestCase):
+    def test_suggests_rest_days_from_work_rest_pattern_and_previous_result(self):
+        month = date(2026, 7, 1)
+        rules = [RestRuleInput("2勤1休", "work_rest_pattern", "", text_value="2,1")]
+        previous = [
+            PreviousShiftDay(1, date(2026, 6, 29), "work"),
+            PreviousShiftDay(1, date(2026, 6, 30), "work"),
+        ]
+
+        suggestions = build_suggested_off_day_map(month, rules, previous)
+
+        self.assertIn(1, suggestions)
+        self.assertEqual(suggestions[1], ["過去実績+勤務ルール"])
+
+    def test_builds_staff_visible_rest_rule_notes_without_strength_details(self):
+        rules = [
+            RestRuleInput(
+                "スタッフ01：2勤1休",
+                "work_rest_pattern",
+                "",
+                text_value="2,1",
+                strength=10,
+                strength_label="絶対",
+                strength_class="warning",
+            ),
+            RestRuleInput("受付禁止", "forbid_specific_work", "", strength=10),
+        ]
+
+        notes = build_staff_rest_constraint_notes(rules)
+
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["label"], "2勤1休")
+        self.assertEqual(notes[0]["detail"], "この流れを希望")

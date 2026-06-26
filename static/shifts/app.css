@@ -220,6 +220,18 @@ body {
   box-shadow: var(--shadow)
 }
 
+.metric-link {
+  color: inherit;
+  text-decoration: none;
+  transition: transform .15s ease, border-color .15s ease
+}
+
+.metric-link:hover {
+  color: inherit;
+  border-color: var(--primary);
+  transform: translateY(-2px)
+}
+
 .metric-icon {
   width: 54px;
   height: 54px;
@@ -566,9 +578,13 @@ body {
 .monthly-table .sticky-col {
   position: sticky;
   left: 0;
+  min-width: 190px;
+  width: 190px;
+  max-width: 190px;
   background: #fff;
   z-index: 2;
-  text-align: left
+  text-align: left;
+  white-space: nowrap
 }
 
 .skill-table .sticky-col small,
@@ -581,6 +597,31 @@ body {
 .skill-table .sticky-col small {
   color: var(--muted);
   font-size: 11px
+}
+
+.staff-name-cell {
+  min-width: 150px;
+  white-space: nowrap
+}
+
+.staff-name-sticky {
+  box-sizing: border-box
+}
+
+.staff-inline-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  white-space: nowrap
+}
+
+.skill-table .sticky-col .staff-inline-name small,
+.skill-table .sticky-col .staff-inline-name strong,
+.monthly-table .sticky-col .staff-inline-name small,
+.monthly-table .sticky-col .staff-inline-name strong {
+  display: inline;
+  white-space: nowrap
 }
 
 .skill-select {
@@ -804,6 +845,30 @@ body {
   min-width: 88px;
   background: #eef8f0 !important;
   color: #1d7a43 !important
+}
+
+.monthly-table .previous-week {
+  --bs-table-bg: #f3f4f6;
+  background-color: #f3f4f6 !important;
+  box-shadow: inset 0 0 0 9999px #f3f4f6 !important;
+  color: #6b7280 !important
+}
+
+.monthly-table th.previous-week {
+  border-right-color: #d1d5db !important
+}
+
+.monthly-table .previous-week + :not(.previous-week) {
+  border-left: 3px solid #7c3aed !important
+}
+
+.readonly-previous-cell {
+  opacity: .86
+}
+
+.previous-blank {
+  color: #9ca3af;
+  font-weight: 900
 }
 
 .monthly-table td.summary-col {
@@ -1088,12 +1153,32 @@ body {
   padding: 8px 9px
 }
 
+.assignment-source-mark,
 .manual-edited-mark {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 4px;
-  color: #7b61ff;
+  border-radius: 999px;
+  padding: 2px 7px;
   font-size: 10px;
-  font-weight: 900
+  font-weight: 900;
+  line-height: 1.2
+}
+
+.monthly-table .assignment-source-mark.auto,
+.assignment-source-mark.auto {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+  box-shadow: inset 0 0 0 1px #bae6fd
+}
+
+.monthly-table .assignment-source-mark.manual,
+.assignment-source-mark.manual,
+.manual-edited-mark {
+  background: #f5f3ff !important;
+  color: #6d28d9 !important;
+  box-shadow: inset 0 0 0 1px #ddd6fe
 }
 
 .urgent-leave-badge {
@@ -1236,6 +1321,64 @@ body {
   background: #fff1f3
 }
 
+.support-item.public-holiday-balance.ok {
+  background: #f0fbf3
+}
+
+.support-item.public-holiday-balance.under {
+  background: #eff6ff
+}
+
+.support-item.public-holiday-balance.over {
+  background: #fff1f3
+}
+
+.support-item.public-holiday-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px
+}
+
+.support-item.public-holiday-balance>strong {
+  min-width: 0
+}
+
+.support-item.public-holiday-balance>span {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  flex: 0 0 auto;
+  margin-top: 0;
+  color: #111827;
+  text-align: right
+}
+
+.public-holiday-count-main {
+  display: inline-block !important;
+  color: #111827;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.2
+}
+
+.public-holiday-count-diff {
+  display: inline-block !important;
+  margin-left: 0;
+  color: #991b1b;
+  font-size: 18px;
+  font-weight: 900
+}
+
+.support-item.public-holiday-balance.under .public-holiday-count-diff {
+  color: #1d4ed8
+}
+
+.support-item.public-holiday-balance.ok .public-holiday-count-diff {
+  color: #166534
+}
+
 .support-average {
   color: var(--muted);
   margin: 0 0 10px
@@ -1251,12 +1394,16 @@ body {
   font-size: 12px
 }
 
-.balance-row.high strong {
+.balance-row.over strong {
   color: #9d1c32
 }
 
-.balance-row.low strong {
+.balance-row.under strong {
   color: #1769b3
+}
+
+.balance-row.ok strong {
+  color: #1d7a43
 }
 
 .warnings {
@@ -1462,6 +1609,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   border-radius: 999px;
   margin-top: 8px;
   padding: 4px 8px;
@@ -1469,6 +1617,13 @@ body {
   color: #5237c4 !important;
   font-size: 11px;
   font-weight: 900
+}
+
+.constraint-suggestion span {
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: #fff7ed;
+  color: #c2410c
 }
 
 .submit-bar {

@@ -1,5 +1,5 @@
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 from django.db import transaction
 from django.db.models import Q
@@ -13,6 +13,12 @@ from shifts.domain.entities import (
     SkillRating,
     StaffMember,
     Work,
+)
+from shifts.domain.rest_patterns import (
+    next_pattern_index_from_previous,
+    previous_consecutive_work_count,
+    previous_work_statuses,
+    work_rest_pattern_from_text,
 )
 from .models import (
     AvailabilityDay,
@@ -83,46 +89,185 @@ class DjangoShiftRepository:
     def availability_for_generation(
         self, company_id: int, month: date
     ) -> list[Availability]:
-        rows = AvailabilityDay.objects.filter(
-            submission__staff__company_id=company_id,
-            submission__month=month.replace(day=1),
-            submission__status=AvailabilitySubmission.Status.SUBMITTED,
+        month = month.replace(day=1)
+        submitted_rows = list(
+            AvailabilityDay.objects.filter(
+                submission__staff__company_id=company_id,
+                submission__month=month,
+                submission__status=AvailabilitySubmission.Status.SUBMITTED,
+            ).select_related("submission")
         )
-        return [
-            Availability(
+        submitted_staff_ids = {row.submission.staff_id for row in submitted_rows}
+        submitted_map = {
+            (row.submission.staff_id, row.day): Availability(
                 row.submission.staff_id,
                 row.day,
                 row.available,
                 row.preferred_off,
                 row.paid_leave,
             )
-            for row in rows.select_related("submission")
+            for row in submitted_rows
+        }
+
+        staff_ids = list(
+            Staff.objects.filter(company_id=company_id, active=True).values_list(
+                "id", flat=True
+            )
+        )
+        rules = self.rules_for_generation(company_id)
+        previous_days = self.previous_shift_days_for_generation(company_id, month)
+
+        result = []
+        for staff_id in staff_ids:
+            if staff_id in submitted_staff_ids:
+                for day in self._days_in_month(month):
+                    result.append(
+                        submitted_map.get(
+                            (staff_id, day),
+                            Availability(staff_id, day, True),
+                        )
+                    )
+                continue
+
+            auto_off_days = self._auto_public_holidays_for_unsubmitted_staff(
+                staff_id,
+                month,
+                rules,
+                previous_days,
+            )
+            for day in self._days_in_month(month):
+                result.append(
+                    Availability(
+                        staff_id,
+                        day,
+                        True,
+                        preferred_off=day in auto_off_days,
+                    )
+                )
+        return result
+
+    def _auto_public_holidays_for_unsubmitted_staff(
+        self,
+        staff_id: int,
+        month: date,
+        rules: list[ConstraintRule],
+        previous_days: list[PreviousShiftDay],
+    ) -> set[date]:
+        staff_rules = [rule for rule in rules if rule.staff_id == staff_id]
+        staff_previous_days = sorted(
+            [item for item in previous_days if item.staff_id == staff_id],
+            key=lambda item: item.day,
+        )
+        off_days: set[date] = set()
+
+        pattern_rule = next(
+            (
+                rule
+                for rule in staff_rules
+                if rule.operator == "work_rest_pattern" and rule.text_value
+            ),
+            None,
+        )
+        if pattern_rule:
+            pattern = work_rest_pattern_from_text(pattern_rule.text_value)
+            if pattern:
+                index = next_pattern_index_from_previous(
+                    pattern,
+                    previous_work_statuses(staff_previous_days),
+                )
+                for day in self._days_in_month(month):
+                    if not pattern[index % len(pattern)]:
+                        off_days.add(day)
+                    index += 1
+
+        max_consecutive_candidates = [
+            int(rule.numeric_value)
+            for rule in staff_rules
+            if rule.operator == "max_consecutive" and rule.numeric_value
         ]
+        if max_consecutive_candidates:
+            max_days = max(1, min(max_consecutive_candidates))
+            streak = previous_consecutive_work_count(staff_previous_days)
+            for day in self._days_in_month(month):
+                if streak >= max_days:
+                    off_days.add(day)
+                    streak = 0
+                else:
+                    streak += 1
+
+        has_rest_scheduling_rule = bool(pattern_rule or max_consecutive_candidates)
+        if not has_rest_scheduling_rule:
+            off_days.update(
+                self._weekly_public_holidays_from_previous_or_staff_offset(
+                    staff_id,
+                    month,
+                    staff_previous_days,
+                )
+            )
+
+        return off_days
+
+    @staticmethod
+    def _weekly_public_holidays_from_previous_or_staff_offset(
+        staff_id: int,
+        month: date,
+        previous_days: list[PreviousShiftDay],
+    ) -> set[date]:
+        day_count = calendar.monthrange(month.year, month.month)[1]
+        latest_public_holiday = None
+        for item in previous_days:
+            if item.status == PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY:
+                latest_public_holiday = item.day
+
+        if latest_public_holiday:
+            off_days = set()
+            current = latest_public_holiday + timedelta(days=7)
+            while current < month:
+                current += timedelta(days=7)
+            while current.month == month.month and current.year == month.year:
+                off_days.add(current)
+                current += timedelta(days=7)
+            return off_days
+
+        first_off_day_number = (staff_id - 1) % 7 + 1
+        return {
+            month.replace(day=day_number)
+            for day_number in range(first_off_day_number, day_count + 1, 7)
+        }
+
+    @staticmethod
+    def _days_in_month(month: date):
+        day_count = calendar.monthrange(month.year, month.month)[1]
+        for day_number in range(1, day_count + 1):
+            yield month.replace(day=day_number)
 
     def rules_for_generation(self, company_id: int) -> list[ConstraintRule]:
         rows = IndividualConstraint.objects.filter(
             company_id=company_id, active=True, rule_type__isnull=False
-        ).select_related("rule_type")
+        ).select_related("rule_type", "related_staff", "work_type_a", "work_type_b")
         result = []
         for row in rows:
             operator = row.rule_type.operator
             if operator == "custom":
                 continue
+            works = [item for item in (row.work_type_a, row.work_type_b) if item]
             result.append(
                 ConstraintRule(
                     operator=operator,
                     staff_id=row.staff_id,
                     related_staff_id=row.related_staff_id,
-                    work_ids=tuple(
-                        value
-                        for value in (row.work_type_a_id, row.work_type_b_id)
-                        if value
-                    ),
+                    work_ids=tuple(work.id for work in works),
                     numeric_value=row.numeric_value,
                     text_value=row.text_value,
                     weekdays=tuple(int(value) for value in row.weekdays),
                     is_hard=row.is_hard,
                     strength=row.strength,
+                    name=row.name,
+                    rule_type_name=row.rule_type.name,
+                    related_staff_name=(
+                        row.related_staff.name if row.related_staff else ""
+                    ),
+                    work_names=tuple(work.name for work in works),
                 )
             )
         return result
