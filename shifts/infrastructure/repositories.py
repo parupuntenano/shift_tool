@@ -34,6 +34,9 @@ from .models import (
 )
 
 
+DEFAULT_WORK_REST_PATTERNS = ("1,1", "2,1", "3,1", "4,1", "5,2")
+
+
 class DjangoShiftRepository:
     def staff_for_generation(self, company_id: int) -> list[StaffMember]:
         limits = {}
@@ -241,7 +244,12 @@ class DjangoShiftRepository:
         for day_number in range(1, day_count + 1):
             yield month.replace(day=day_number)
 
-    def rules_for_generation(self, company_id: int) -> list[ConstraintRule]:
+    def rules_for_generation(
+        self,
+        company_id: int,
+        *,
+        include_default_patterns: bool = False,
+    ) -> list[ConstraintRule]:
         rows = IndividualConstraint.objects.filter(
             company_id=company_id, active=True, rule_type__isnull=False
         ).select_related("rule_type", "related_staff", "work_type_a", "work_type_b")
@@ -270,7 +278,38 @@ class DjangoShiftRepository:
                     work_names=tuple(work.name for work in works),
                 )
             )
+        if include_default_patterns:
+            self._append_default_work_rest_pattern_rules(company_id, result)
         return result
+
+    @staticmethod
+    def _append_default_work_rest_pattern_rules(
+        company_id: int,
+        rules: list[ConstraintRule],
+    ):
+        staff_ids_with_pattern = {
+            rule.staff_id
+            for rule in rules
+            if rule.staff_id and rule.operator == "work_rest_pattern"
+        }
+        staff_ids = Staff.objects.filter(company_id=company_id, active=True).values_list(
+            "id", flat=True
+        )
+        for staff_id in staff_ids:
+            if staff_id in staff_ids_with_pattern:
+                continue
+            for pattern in DEFAULT_WORK_REST_PATTERNS:
+                rules.append(
+                    ConstraintRule(
+                        operator="work_rest_pattern",
+                        staff_id=staff_id,
+                        text_value=pattern,
+                        is_hard=False,
+                        strength=4,
+                        name="標準勤務候補",
+                        rule_type_name="勤休パターン",
+                    )
+                )
 
     def previous_shift_days_for_generation(
         self, company_id: int, month: date

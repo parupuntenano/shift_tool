@@ -47,6 +47,51 @@ class MonthlyShiftGeneratorTests(TestCase):
         self.assertNotIn(2, days)
         self.assertNotIn(5, days)
 
+    def test_keeps_at_least_two_public_holidays_per_week(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "A", max_consecutive_days=10)]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [
+            Availability(1, month.replace(day=d), True) for d in range(1, 9)
+        ]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability
+        )
+
+        assigned_days = [item.day.day for item in result.assignments]
+        self.assertEqual(assigned_days[:5], [1, 2, 3, 4, 5])
+        self.assertNotIn(6, assigned_days)
+        self.assertNotIn(7, assigned_days)
+        self.assertIn(8, assigned_days)
+
+    def test_weekly_public_holiday_count_resets_on_sunday(self):
+        month = date(2026, 2, 1)  # Sunday
+        staff = [StaffMember(1, "A", max_consecutive_days=10)]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [Availability(1, month, True)]
+        previous = [
+            PreviousShiftDay(1, date(2026, 1, 29), "work", 10),
+            PreviousShiftDay(1, date(2026, 1, 30), "work", 10),
+            PreviousShiftDay(1, date(2026, 1, 31), "work", 10),
+        ]
+
+        result = MonthlyShiftGenerator().generate(
+            month,
+            staff,
+            works,
+            skills,
+            availability,
+            previous_shift_days=previous,
+        )
+
+        self.assertEqual(
+            [(item.day, item.work_id) for item in result.assignments],
+            [(month, 10)],
+        )
+
     def test_alternates_between_two_configured_works(self):
         month = date(2026, 2, 1)
         staff = [StaffMember(1, "A")]
@@ -339,6 +384,49 @@ class MonthlyShiftGeneratorTests(TestCase):
         )
 
         self.assertEqual([item.day.day for item in result.assignments], [1, 2])
+
+    def test_work_rest_patterns_are_treated_as_alternative_candidates(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "A", max_consecutive_days=10)]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [
+            Availability(1, month.replace(day=d), True) for d in range(1, 5)
+        ]
+        rules = [
+            ConstraintRule(
+                "work_rest_pattern", staff_id=1, text_value="2,1", strength=10
+            ),
+            ConstraintRule(
+                "work_rest_pattern", staff_id=1, text_value="3,1", strength=10
+            ),
+        ]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability, rules
+        )
+
+        self.assertEqual([item.day.day for item in result.assignments], [1, 2, 3, 4])
+
+    def test_default_five_work_two_rest_candidate_still_keeps_two_weekly_rests(self):
+        month = date(2026, 2, 1)  # Sunday
+        staff = [StaffMember(1, "A", max_consecutive_days=10)]
+        works = [Work(10, "業務", 1)]
+        skills = [SkillRating(1, 10, 1, True)]
+        availability = [
+            Availability(1, month.replace(day=d), True) for d in range(1, 8)
+        ]
+        rules = [
+            ConstraintRule(
+                "work_rest_pattern", staff_id=1, text_value="5,2", strength=4
+            )
+        ]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability, rules
+        )
+
+        self.assertEqual(len(result.assignments), 5)
 
     def test_prevents_single_rest_between_work_days(self):
         month = date(2026, 2, 1)

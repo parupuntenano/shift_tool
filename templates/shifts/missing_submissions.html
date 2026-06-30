@@ -62,6 +62,37 @@
   <section class="panel">
     <div class="panel-head">
       <div>
+        <h2>公休申請Excelを取り込む</h2>
+        <p>公休または有休が入力されているスタッフを提出済みとして扱い、未提出者一覧に反映します。</p>
+      </div>
+    </div>
+    <form method="post" class="bulk-limit-panel">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="bulk_limit">
+      <div>
+        <strong>公休・有休の申請上限</strong>
+        <small>Excel取込時、この上限を超えたスタッフは取り込まずエラーにします。</small>
+      </div>
+      {{ bulk_limit_form.desired_off_limit }}
+      <button class="btn btn-outline-primary">全員へ反映</button>
+    </form>
+    <form method="post" enctype="multipart/form-data" class="inline-form">
+      {% csrf_token %}
+      {{ import_form.as_p }}
+      <button class="btn btn-primary">取り込む</button>
+    </form>
+    <div class="format-guide">
+      <strong>最低限必要な見出し</strong>
+      <code>社員番号</code>
+      <small>社員番号が全員分載っていても、公休・有休が1つも入っていない人は未提出扱いです。</small>
+      <small>日付列のセルに「公休」「休」「有給」「有休」が入っている人だけ提出済みとして保存します。</small>
+      <small>Excelの場合、シート名が「公休申請」ならそのシートを読みます。なければ先頭シートを読みます。</small>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
         <h2>未提出スタッフ</h2>
         <p>提出データがない、または下書きのままのスタッフです。</p>
       </div>

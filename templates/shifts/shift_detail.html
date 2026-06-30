@@ -98,7 +98,10 @@
             <th class="summary-col">有給</th>
             <th class="summary-col">合計</th>
             {% for work in works %}
-              <th class="summary-col work-summary-col">{{ work.name }}</th>
+              <th class="summary-col work-summary-col">
+                {{ work.name }}
+                <small>必要{{ work.required_staff_per_day }}</small>
+              </th>
             {% endfor %}
           </tr>
         </thead>
@@ -169,6 +172,11 @@
                       <small class="assignment-source-mark {% if cell.assignment.manually_edited %}manual{% else %}auto{% endif %}">
                         {% if cell.assignment.manually_edited %}手動{% else %}自動{% endif %}
                       </small>
+                      {% if cell.assignment_is_trainee %}
+                        <small class="training-badge trainee">研修</small>
+                      {% elif cell.assignment_is_instructor %}
+                        <small class="training-badge instructor">指導</small>
+                      {% endif %}
                     {% endif %}
                     {% if not cell.assignment %}
                       <span class="rest-chip {{ cell.rest_kind }}">{{ cell.rest_label }}</span>
@@ -190,6 +198,11 @@
                     <small class="assignment-source-mark {% if cell.assignment.manually_edited %}manual{% else %}auto{% endif %}">
                       {% if cell.assignment.manually_edited %}手動{% else %}自動{% endif %}
                     </small>
+                    {% if cell.assignment_is_trainee %}
+                      <small class="training-badge trainee">研修</small>
+                    {% elif cell.assignment_is_instructor %}
+                      <small class="training-badge instructor">指導</small>
+                    {% endif %}
                     {% if cell.leave_request %}
                       <small class="urgent-leave-badge">急休{{ cell.leave_request.get_status_display }}</small>
                     {% endif %}
@@ -230,6 +243,7 @@
                 <span class="work-chip"
                       {% if stat.work.color %}style="--work-color: {{ stat.work.color }};"{% endif %}>
                   {{ stat.work.name }}
+                  <small class="required-staff-inline">必要{{ stat.work.required_staff_per_day }}</small>
                 </span>
               </th>
               {% for day in previous_days %}
@@ -364,34 +378,36 @@
         {% endif %}
       </div>
 
-      <div class="support-grid">
-        <div class="support-card">
-          <h3>必要人数不足</h3>
-          {% for item in edit_support.daily_shortages %}
-            <div class="support-item danger">
-              <strong>{{ item.day.date|date:'n/j' }} {{ item.work.name }}</strong>
-              <span>{{ item.count }}/{{ item.required }}人 · あと{{ item.shortage }}人</span>
-            </div>
-          {% empty %}
-            <p class="empty">全業務で必要人数を満たしています。</p>
-          {% endfor %}
+      <div class="support-layout">
+        <div class="support-main">
+          <div class="support-card support-card-large">
+            <h3>必要人数不足</h3>
+            {% for item in edit_support.daily_shortages %}
+              <div class="support-item danger">
+                <strong>{{ item.day.date|date:'n/j' }} {{ item.work.name }}</strong>
+                <span>{{ item.count }}/{{ item.required }}人 · あと{{ item.shortage }}人</span>
+              </div>
+            {% empty %}
+              <p class="empty">全業務で必要人数を満たしています。</p>
+            {% endfor %}
+          </div>
+
+          <div class="support-card support-card-large">
+            <h3>希望・スキルの衝突</h3>
+            {% for issue in edit_support.assignment_issues %}
+              <div class="support-item {{ issue.level }}">
+                <strong>{{ issue.day|date:'n/j' }} {{ issue.staff.name }}</strong>
+                <span>{{ issue.message }}</span>
+              </div>
+            {% empty %}
+              <p class="empty">勤務不可・公休希望・有給希望・スキル不可の目立つ衝突はありません。</p>
+            {% endfor %}
+          </div>
         </div>
 
-        <div class="support-card">
-          <h3>希望・スキルの衝突</h3>
-          {% for issue in edit_support.assignment_issues %}
-            <div class="support-item {{ issue.level }}">
-              <strong>{{ issue.day|date:'n/j' }} {{ issue.staff.name }}</strong>
-              <span>{{ issue.message }}</span>
-            </div>
-          {% empty %}
-            <p class="empty">勤務不可・公休希望・有給希望・スキル不可の目立つ衝突はありません。</p>
-          {% endfor %}
-        </div>
-
-        <div class="support-card">
+        <aside class="support-card support-detail-card">
           <h3>公休数の超過・不足</h3>
-          <p class="support-average">実績公休 / 設定公休 / 差分を表示します。</p>
+          <p class="support-average">±0のスタッフは非表示です。</p>
           {% for item in edit_support.public_holiday_rows %}
             <div class="support-item public-holiday-balance {{ item.status }}">
               <strong>{{ item.staff.employee_number }} {{ item.staff.name }}</strong>
@@ -402,18 +418,16 @@
                 <span class="public-holiday-count-diff">
                   {% if item.difference > 0 %}
                     +{{ item.difference }}
-                  {% elif item.difference < 0 %}
-                    {{ item.difference }}
                   {% else %}
-                    ±0
+                    {{ item.difference }}
                   {% endif %}
                 </span>
               </span>
             </div>
           {% empty %}
-            <p class="empty">表示できるスタッフがいません。</p>
+            <p class="empty">公休数の超過・不足はありません。</p>
           {% endfor %}
-        </div>
+        </aside>
       </div>
     </section>
   {% endif %}

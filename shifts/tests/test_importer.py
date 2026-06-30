@@ -122,6 +122,201 @@ class MasterImportTests(DjangoTestCase):
             ).exists()
         )
 
+    def test_import_creates_soft_max_and_weekend_rest_constraints_from_note(self):
+        company = Company.objects.create(name="テスト", code="complex-note-test")
+        data = ImportedSkillMap(
+            (
+                ImportedStaffRow(
+                    "S001",
+                    "青木",
+                    "可能な限り4勤不可;土日祝は公休",
+                    {},
+                ),
+            )
+        )
+
+        DjangoMasterRepository().save_skill_map(company.id, data)
+
+        staff = Staff.objects.get(company=company, employee_number="S001")
+        constraints = IndividualConstraint.objects.filter(company=company, staff=staff)
+        self.assertTrue(
+            constraints.filter(
+                rule_type__operator=ConstraintType.Operator.MAX_CONSECUTIVE,
+                numeric_value=3,
+                strength=4,
+            ).exists()
+        )
+        self.assertTrue(
+            constraints.filter(
+                rule_type__operator=ConstraintType.Operator.FORBID_WORKS_ON_WEEKDAYS,
+                weekdays=[5, 6],
+                strength=10,
+            ).exists()
+        )
+
+    def test_import_saves_base_and_outside_base_rest_patterns_with_strengths(self):
+        company = Company.objects.create(name="テスト", code="base-pattern-test")
+        data = ImportedSkillMap(
+            (
+                ImportedStaffRow(
+                    "S001",
+                    "青木",
+                    "ベース2勤1休;3勤1休",
+                    {},
+                ),
+            )
+        )
+
+        DjangoMasterRepository().save_skill_map(company.id, data)
+
+        staff = Staff.objects.get(company=company, employee_number="S001")
+        constraints = IndividualConstraint.objects.filter(company=company, staff=staff)
+        pattern_constraints = constraints.filter(
+            rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
+        )
+        self.assertEqual(pattern_constraints.count(), 2)
+        self.assertTrue(
+            pattern_constraints.filter(
+                name__contains="ベース勤務：2勤1休",
+                text_value="2,1",
+                strength=7,
+                parameters__pattern_role="base",
+            ).exists()
+        )
+        self.assertTrue(
+            pattern_constraints.filter(
+                name__contains="ベース外勤務：3勤1休",
+                text_value="3,1",
+                strength=4,
+                parameters__pattern_role="outside_base",
+            ).exists()
+        )
+
+    def test_base_pattern_does_not_auto_add_when_candidates_are_written(self):
+        company = Company.objects.create(name="テスト", code="manual-candidate-test")
+        data = ImportedSkillMap(
+            (
+                ImportedStaffRow(
+                    "S001",
+                    "青木",
+                    "ベース3勤1休;2勤1休",
+                    {},
+                ),
+            )
+        )
+
+        DjangoMasterRepository().save_skill_map(company.id, data)
+
+        staff = Staff.objects.get(company=company, employee_number="S001")
+        patterns = set(
+            IndividualConstraint.objects.filter(
+                company=company,
+                staff=staff,
+                rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
+            ).values_list("text_value", "strength")
+        )
+        self.assertEqual(patterns, {("3,1", 7), ("2,1", 4)})
+
+    def test_rest_pattern_without_base_does_not_auto_add_candidates(self):
+        company = Company.objects.create(name="テスト", code="single-pattern-test")
+        data = ImportedSkillMap(
+            (
+                ImportedStaffRow(
+                    "S001",
+                    "青木",
+                    "3勤1休",
+                    {},
+                ),
+            )
+        )
+
+        DjangoMasterRepository().save_skill_map(company.id, data)
+
+        staff = Staff.objects.get(company=company, employee_number="S001")
+        patterns = set(
+            IndividualConstraint.objects.filter(
+                company=company,
+                staff=staff,
+                rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
+            ).values_list("text_value", "strength")
+        )
+        self.assertEqual(patterns, {("3,1", 4)})
+
+    def test_generation_rules_add_default_rest_pattern_candidates_when_note_has_no_pattern(self):
+        company = Company.objects.create(name="テスト", code="default-pattern-test")
+        staff = Staff.objects.create(
+            company=company,
+            employee_number="S001",
+            name="青木",
+        )
+
+        rules = DjangoShiftRepository().rules_for_generation(
+            company.id,
+            include_default_patterns=True,
+        )
+
+        patterns = {
+            rule.text_value
+            for rule in rules
+            if rule.staff_id == staff.id and rule.operator == "work_rest_pattern"
+        }
+        self.assertEqual(patterns, {"1,1", "2,1", "3,1", "4,1", "5,2"})
+
+    def test_generation_rules_do_not_add_default_patterns_when_note_has_pattern(self):
+        company = Company.objects.create(name="テスト", code="no-default-pattern-test")
+        data = ImportedSkillMap(
+            (
+                ImportedStaffRow(
+                    "S001",
+                    "青木",
+                    "3勤1休",
+                    {},
+                ),
+            )
+        )
+        DjangoMasterRepository().save_skill_map(company.id, data)
+        staff = Staff.objects.get(company=company, employee_number="S001")
+
+        rules = DjangoShiftRepository().rules_for_generation(
+            company.id,
+            include_default_patterns=True,
+        )
+
+        patterns = {
+            rule.text_value
+            for rule in rules
+            if rule.staff_id == staff.id and rule.operator == "work_rest_pattern"
+        }
+        self.assertEqual(patterns, {"3,1"})
+
+    def test_base_pattern_candidates_respect_specific_limits(self):
+        company = Company.objects.create(name="テスト", code="base-limit-test")
+        data = ImportedSkillMap(
+            (
+                ImportedStaffRow(
+                    "S001",
+                    "青木",
+                    "ベース3勤1休;4勤以上禁止;単日禁止",
+                    {},
+                ),
+            )
+        )
+
+        DjangoMasterRepository().save_skill_map(company.id, data)
+
+        staff = Staff.objects.get(company=company, employee_number="S001")
+        patterns = set(
+            IndividualConstraint.objects.filter(
+                company=company,
+                staff=staff,
+                rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
+            ).values_list("text_value", "strength")
+        )
+        self.assertIn(("3,1", 7), patterns)
+        self.assertIn(("2,1", 4), patterns)
+        self.assertNotIn(("1,1", 4), patterns)
+        self.assertNotIn(("4,1", 4), patterns)
+
     def test_import_does_not_create_staff_login_account(self):
         company = Company.objects.create(name="テスト", code="account-import-test")
         data = ImportedSkillMap((ImportedStaffRow("50592", "青木", "", {}),))

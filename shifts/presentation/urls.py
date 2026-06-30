@@ -17,6 +17,11 @@ urlpatterns = [
         name="missing_submissions",
     ),
     path("manager/staff/", views.staff_manage, name="staff_manage"),
+    path(
+        "manager/staff/delete-all/",
+        views.staff_bulk_delete,
+        name="staff_bulk_delete",
+    ),
     path("manager/staff/<int:pk>/edit/", views.staff_edit, name="staff_edit"),
     path("manager/staff/<int:pk>/delete/", views.staff_delete, name="staff_delete"),
     path("manager/works/", views.work_manage, name="work_manage"),

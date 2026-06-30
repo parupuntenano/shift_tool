@@ -23,7 +23,12 @@ class ShiftRepository(Protocol):
     def previous_shift_days_for_generation(
         self, company_id: int, month: date
     ) -> list[PreviousShiftDay]: ...
-    def rules_for_generation(self, company_id: int) -> list[ConstraintRule]: ...
+    def rules_for_generation(
+        self,
+        company_id: int,
+        *,
+        include_default_patterns: bool = False,
+    ) -> list[ConstraintRule]: ...
     def save_generation(
         self, company_id: int, month: date, result: GenerationResult
     ) -> int: ...

@@ -23,6 +23,9 @@ TOTAL_ASSIGNMENT_WEIGHT = 22
 SAME_WORK_ASSIGNMENT_WEIGHT = 16
 MULTI_SKILL_PENALTY = 5
 SHORT_STAFFED_WORK_BONUS = 10
+WEEKLY_REST_DAYS = 2
+WEEK_DAYS = 7
+MAX_WORK_DAYS_PER_WEEK = WEEK_DAYS - WEEKLY_REST_DAYS
 
 
 @dataclass(frozen=True, order=True)
@@ -445,10 +448,7 @@ class MonthlyShiftGenerator:
                 continue
             if rating.trainee:
                 continue
-            if (
-                cls._consecutive_days(member.id, current, assignments)
-                >= member.max_consecutive_days
-            ):
+            if cls._exceeds_consecutive_limit(member, current, assignments):
                 continue
             allowed, rule_penalty = cls._evaluate_rules(
                 member.id,
@@ -603,10 +603,7 @@ class MonthlyShiftGenerator:
                 or (member.id, current) in assigned_by_day
             ):
                 continue
-            if (
-                cls._consecutive_days(member.id, current, assignments)
-                >= member.max_consecutive_days
-            ):
+            if cls._exceeds_consecutive_limit(member, current, assignments):
                 continue
             allowed, rule_penalty = cls._evaluate_rules(
                 member.id,
@@ -720,6 +717,16 @@ class MonthlyShiftGenerator:
         pattern_anchor_by_staff=None,
     ):
         penalty = 0
+        pattern_allowed, pattern_penalty = cls._evaluate_work_rest_pattern_rules(
+            staff_id,
+            current,
+            rules,
+            pattern_anchor_by_staff or {},
+        )
+        if not pattern_allowed:
+            return False, penalty
+        penalty += pattern_penalty
+
         for rule in rules:
             violated = False
             if rule.operator == "incompatible_same_work":
@@ -734,6 +741,8 @@ class MonthlyShiftGenerator:
                     else rule.staff_id
                 )
                 violated = other_staff in assigned_same_work
+            elif rule.operator == "work_rest_pattern":
+                continue
             elif rule.staff_id is not None and rule.staff_id != staff_id:
                 continue
             elif rule.operator == "max_consecutive":
@@ -760,18 +769,49 @@ class MonthlyShiftGenerator:
                     current - timedelta(days=1) not in worked
                     and current - timedelta(days=2) in worked
                 )
-            elif rule.operator == "work_rest_pattern":
-                pattern = cls._work_rest_pattern(rule.text_value)
-                if pattern:
-                    index = cls._work_rest_pattern_index(
-                        staff_id, current, pattern, pattern_anchor_by_staff or {}
-                    )
-                    violated = not pattern[index]
             if violated and cls._is_blocking_rule(rule):
                 return False, penalty
             if violated:
                 penalty += cls._soft_penalty(rule.operator, rule)
         return True, penalty
+
+    @classmethod
+    def _evaluate_work_rest_pattern_rules(
+        cls,
+        staff_id,
+        current,
+        rules,
+        pattern_anchor_by_staff,
+    ):
+        pattern_rules = [
+            rule
+            for rule in rules
+            if rule.operator == "work_rest_pattern"
+            and rule.staff_id == staff_id
+            and rule.text_value
+        ]
+        if not pattern_rules:
+            return True, 0
+
+        penalties = []
+        has_blocking_rule = False
+        for rule in pattern_rules:
+            pattern = cls._work_rest_pattern(rule.text_value)
+            if not pattern:
+                continue
+            index = cls._work_rest_pattern_index(
+                staff_id, current, pattern, pattern_anchor_by_staff
+            )
+            if pattern[index]:
+                return True, 0
+            has_blocking_rule = has_blocking_rule or cls._is_blocking_rule(rule)
+            penalties.append(cls._soft_penalty(rule.operator, rule))
+
+        if not penalties:
+            return True, 0
+        if has_blocking_rule:
+            return False, 0
+        return True, min(penalties)
 
     @classmethod
     def _soft_penalty(cls, operator: str, rule: ConstraintRule) -> int:
@@ -856,6 +896,38 @@ class MonthlyShiftGenerator:
         return count
 
     @classmethod
+    def _exceeds_consecutive_limit(cls, member, current, assignments) -> bool:
+        # スタッフ別の最大連勤設定が緩い場合でも、
+        # 日曜〜土曜の1週間で最低2日は公休を作る。
+        if cls._consecutive_days(member.id, current, assignments) >= member.max_consecutive_days:
+            return True
+        return (
+            cls._worked_days_in_current_sunday_week(
+                member.id,
+                current,
+                assignments,
+            )
+            >= MAX_WORK_DAYS_PER_WEEK
+        )
+
+    @staticmethod
+    def _worked_days_in_current_sunday_week(
+        staff_id: int,
+        current: date,
+        assignments: list[Assignment],
+    ) -> int:
+        # Pythonの weekday は月曜=0, 日曜=6。
+        # 日曜始まりに直すため、日曜なら0日前、月曜なら1日前...土曜なら6日前を週初にする。
+        days_since_sunday = (current.weekday() + 1) % 7
+        week_start = current - timedelta(days=days_since_sunday)
+        worked = {
+            item.day
+            for item in assignments
+            if item.staff_id == staff_id and week_start <= item.day < current
+        }
+        return len(worked)
+
+    @classmethod
     def _eligible_count(
         cls,
         work,
@@ -889,10 +961,7 @@ class MonthlyShiftGenerator:
                 continue
             if rating.trainee:
                 continue
-            if (
-                cls._consecutive_days(member.id, current, assignments)
-                >= member.max_consecutive_days
-            ):
+            if cls._exceeds_consecutive_limit(member, current, assignments):
                 continue
             allowed, _penalty = cls._evaluate_rules(
                 member.id,

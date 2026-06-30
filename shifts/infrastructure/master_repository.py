@@ -24,7 +24,7 @@ NOTE_RULE_TYPE_DEFAULTS = {
     ConstraintType.Operator.WORK_REST_PATTERN: (
         "勤休パターン",
         "2,1や2,1,3,1のような勤務・休日パターンを繰り返します。",
-        5,
+        7,
     ),
     ConstraintType.Operator.NO_SINGLE_REST: (
         "単休禁止・連休確保",
@@ -39,6 +39,11 @@ NOTE_RULE_TYPE_DEFAULTS = {
     ConstraintType.Operator.FORBID_SPECIFIC_WORK: (
         "特定業務アサイン禁止",
         "指定スタッフを対象業務へ配置しません。",
+        10,
+    ),
+    ConstraintType.Operator.FORBID_WORKS_ON_WEEKDAYS: (
+        "曜日別業務アサイン禁止",
+        "指定曜日に対象業務へ配置しません。業務未指定なら全業務を禁止します。",
         10,
     ),
 }
@@ -135,6 +140,8 @@ class DjangoMasterRepository:
             }
             if rule.get("numeric_value"):
                 parameters["value"] = rule["numeric_value"]
+            if rule.get("pattern_role"):
+                parameters["pattern_role"] = rule["pattern_role"]
             IndividualConstraint.objects.create(
                 company_id=company_id,
                 staff=staff,
@@ -145,7 +152,7 @@ class DjangoMasterRepository:
                 work_type_b=rule.get("work_type_b"),
                 numeric_value=rule.get("numeric_value"),
                 text_value=rule.get("text_value", ""),
-                weekdays=[],
+                weekdays=rule.get("weekdays", []),
                 is_hard=strength == 10,
                 strength=strength,
                 parameters=parameters,
@@ -164,65 +171,250 @@ class DjangoMasterRepository:
     def _parse_note_rules(self, company_id: int, note: str) -> list[dict]:
         rules = []
         works = list(WorkType.objects.filter(company_id=company_id, active=True))
-        for token in self._note_tokens(note):
-            compact = token.replace(" ", "").replace("　", "")
+        tokens = self._note_tokens(note)
+        compact_tokens = [
+            token.replace(" ", "").replace("　", "") for token in tokens
+        ]
+        context = {
+            "single_work_day_forbidden": any(
+                re.search(r"(単日|単勤|1勤|１勤)(?:不可|禁止|NG|ＮＧ)", compact)
+                for compact in compact_tokens
+            ),
+            "max_work_days": self._max_work_days_from_tokens(compact_tokens),
+        }
+        rest_pattern_count = sum(
+            1
+            for compact in compact_tokens
+            if self._rest_pattern_match(compact)
+        )
+        seen_rules = set()
+
+        for token, compact in zip(tokens, compact_tokens):
             work_rule = self._parse_work_note_rule(compact, token, works)
             if work_rule:
-                rules.append(work_rule)
+                self._append_note_rule(rules, work_rule, seen_rules)
                 continue
 
-            rest_pattern = re.search(r"(\d+)\s*勤\s*(\d+)\s*休", compact)
+            rest_pattern = self._rest_pattern_match(compact)
             if rest_pattern:
-                work_days, rest_days = rest_pattern.groups()
-                rules.append(
+                base_marker, work_days, rest_days = rest_pattern.groups()
+                is_base = bool(base_marker)
+                for rule in self._rest_pattern_note_rules(
+                    token,
+                    int(work_days),
+                    int(rest_days),
+                    is_base,
+                    context,
+                    auto_add_candidates=rest_pattern_count == 1,
+                ):
+                    self._append_note_rule(rules, rule, seen_rules)
+                continue
+
+            soft_max_forbid = re.search(
+                r"(?:可能な限り|できれば|なるべく)(\d+)(?:連勤|勤)(?:以上)?(?:不可|禁止|NG|ＮＧ)",
+                compact,
+            )
+            if soft_max_forbid:
+                max_days = max(1, int(soft_max_forbid.group(1)) - 1)
+                self._append_note_rule(
+                    rules,
                     {
-                        "operator": ConstraintType.Operator.WORK_REST_PATTERN,
-                        "label": f"{work_days}勤{rest_days}休",
-                        "text_value": f"{work_days},{rest_days}",
-                        "strength": 5,
+                        "operator": ConstraintType.Operator.MAX_CONSECUTIVE,
+                        "label": f"可能な限り{int(soft_max_forbid.group(1))}連勤不可",
+                        "numeric_value": max_days,
+                        "strength": 4,
                         "token": token,
-                    }
+                    },
+                    seen_rules,
                 )
                 continue
 
             max_until = re.search(r"(?:最大|最長)?(\d+)(?:連勤|勤)(?:まで|以内)", compact)
             if max_until:
                 max_days = int(max_until.group(1))
-                rules.append(
+                self._append_note_rule(
+                    rules,
                     {
                         "operator": ConstraintType.Operator.MAX_CONSECUTIVE,
                         "label": f"最大{max_days}連勤",
                         "numeric_value": max_days,
                         "strength": 10,
                         "token": token,
-                    }
+                    },
+                    seen_rules,
                 )
                 continue
 
-            max_forbid = re.search(r"(\d+)(?:連勤|勤)(?:不可|禁止|NG|ＮＧ)", compact)
+            max_forbid = re.search(r"(\d+)(?:連勤|勤)(?:以上)?(?:不可|禁止|NG|ＮＧ)", compact)
             if max_forbid:
                 max_days = max(1, int(max_forbid.group(1)) - 1)
-                rules.append(
+                self._append_note_rule(
+                    rules,
                     {
                         "operator": ConstraintType.Operator.MAX_CONSECUTIVE,
                         "label": f"{int(max_forbid.group(1))}連勤不可",
                         "numeric_value": max_days,
                         "strength": 10,
                         "token": token,
-                    }
+                    },
+                    seen_rules,
                 )
                 continue
 
             if re.search(r"単休(?:不可|禁止|NG|ＮＧ)", compact):
-                rules.append(
+                self._append_note_rule(
+                    rules,
                     {
                         "operator": ConstraintType.Operator.NO_SINGLE_REST,
                         "label": "単休禁止",
                         "strength": 10,
                         "token": token,
-                    }
+                    },
+                    seen_rules,
+                )
+                continue
+
+            if re.search(r"(土日祝|土日)(?:は)?(?:公休|休み|休)", compact):
+                self._append_note_rule(
+                    rules,
+                    {
+                        "operator": ConstraintType.Operator.FORBID_WORKS_ON_WEEKDAYS,
+                        "label": "土日祝公休",
+                        "weekdays": [5, 6],
+                        "strength": 10,
+                        "token": token,
+                    },
+                    seen_rules,
                 )
         return rules
+
+    @staticmethod
+    def _rest_pattern_match(compact: str):
+        return re.search(r"(?:(ベース|基本))?(\d+)\s*勤\s*(\d+)\s*休", compact)
+
+    @staticmethod
+    def _append_note_rule(rules: list[dict], rule: dict, seen_rules: set):
+        key = (
+            rule.get("operator"),
+            rule.get("text_value", ""),
+            rule.get("pattern_role", ""),
+            rule.get("numeric_value"),
+            tuple(rule.get("weekdays", [])),
+            getattr(rule.get("work_type_a"), "id", None),
+            getattr(rule.get("work_type_b"), "id", None),
+        )
+        if key in seen_rules:
+            return
+        seen_rules.add(key)
+        rules.append(rule)
+
+    @staticmethod
+    def _max_work_days_from_tokens(compact_tokens: list[str]) -> int | None:
+        limits = []
+        for compact in compact_tokens:
+            if re.search(r"(?:可能な限り|できれば|なるべく)", compact):
+                continue
+            max_until = re.search(r"(?:最大|最長)?(\d+)(?:連勤|勤)(?:まで|以内)", compact)
+            if max_until:
+                limits.append(int(max_until.group(1)))
+                continue
+            max_forbid = re.search(
+                r"(\d+)(?:連勤|勤)(?:以上)?(?:不可|禁止|NG|ＮＧ)",
+                compact,
+            )
+            if max_forbid:
+                limits.append(max(1, int(max_forbid.group(1)) - 1))
+        return min(limits) if limits else None
+
+    @classmethod
+    def _rest_pattern_note_rules(
+        cls,
+        token: str,
+        work_days: int,
+        rest_days: int,
+        is_base: bool,
+        context: dict,
+        auto_add_candidates: bool,
+    ) -> list[dict]:
+        if not is_base:
+            return [
+                cls._work_rest_pattern_rule(
+                    token,
+                    work_days,
+                    rest_days,
+                    "ベース外勤務",
+                    "outside_base",
+                    4,
+                )
+            ]
+
+        rules = [
+            cls._work_rest_pattern_rule(
+                token,
+                work_days,
+                rest_days,
+                "ベース勤務",
+                "base",
+                7,
+            )
+        ]
+        if not auto_add_candidates:
+            return rules
+
+        for candidate_work_days in cls._outside_base_work_day_candidates(work_days):
+            if not cls._outside_base_pattern_allowed(
+                candidate_work_days,
+                context,
+            ):
+                continue
+            rules.append(
+                cls._work_rest_pattern_rule(
+                    token,
+                    candidate_work_days,
+                    rest_days,
+                    "ベース外勤務",
+                    "outside_base",
+                    4,
+                )
+            )
+        return rules
+
+    @staticmethod
+    def _outside_base_work_day_candidates(base_work_days: int) -> list[int]:
+        start = max(1, base_work_days - 2)
+        end = base_work_days + 1
+        return [
+            work_days
+            for work_days in range(start, end + 1)
+            if work_days != base_work_days
+        ]
+
+    @staticmethod
+    def _outside_base_pattern_allowed(work_days: int, context: dict) -> bool:
+        if context.get("single_work_day_forbidden") and work_days == 1:
+            return False
+        max_work_days = context.get("max_work_days")
+        if max_work_days is not None and work_days > max_work_days:
+            return False
+        return True
+
+    @staticmethod
+    def _work_rest_pattern_rule(
+        token: str,
+        work_days: int,
+        rest_days: int,
+        label_prefix: str,
+        pattern_role: str,
+        strength: int,
+    ) -> dict:
+        return {
+            "operator": ConstraintType.Operator.WORK_REST_PATTERN,
+            "label": f"{label_prefix}：{work_days}勤{rest_days}休",
+            "text_value": f"{work_days},{rest_days}",
+            "strength": strength,
+            "pattern_role": pattern_role,
+            "token": token,
+        }
 
     @staticmethod
     def _parse_work_note_rule(compact: str, token: str, works: list[WorkType]):

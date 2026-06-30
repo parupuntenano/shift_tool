@@ -123,6 +123,112 @@ class ManagerCrudTests(TestCase):
         self.assertEqual(added.desired_off_limit, self.company.default_desired_off_limit)
         self.assertTrue(added.is_employee)
 
+    def test_staff_bulk_delete_removes_staff_related_data_only(self):
+        staff_user = get_user_model().objects.create_user("S100", password="pass")
+        staff = Staff.objects.create(
+            company=self.company,
+            user=staff_user,
+            employee_number="S100",
+            name="削除 太郎",
+        )
+        other_staff = Staff.objects.create(
+            company=self.other_company,
+            employee_number="O100",
+            name="他社 花子",
+        )
+        CompanyMembership.objects.create(
+            company=self.company,
+            user=staff_user,
+            role=CompanyMembership.Role.STAFF,
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        level = SkillLevel.objects.create(
+            company=self.company,
+            symbol="○",
+            meaning="対応可",
+            assignable=True,
+        )
+        StaffSkill.objects.create(staff=staff, work_type=work, level=level)
+        IndividualConstraint.objects.create(
+            company=self.company,
+            staff=staff,
+            name="単休不可",
+            kind=IndividualConstraint.Kind.NO_SINGLE_REST,
+        )
+        submission = AvailabilitySubmission.objects.create(
+            staff=staff,
+            month=date(2026, 7, 1),
+            status=AvailabilitySubmission.Status.SUBMITTED,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 1),
+            preferred_off=True,
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=self.company,
+            staff=staff,
+            day=date(2026, 6, 30),
+            status=PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY,
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        assignment = ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+        ShiftLeaveRequest.objects.create(
+            period=period,
+            staff=staff,
+            assignment=assignment,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+        GenerationWarning.objects.create(
+            period=period,
+            day=date(2026, 7, 1),
+            work_type=work,
+            message="警告",
+        )
+
+        response = self.client.post(reverse("staff_bulk_delete"))
+
+        self.assertRedirects(response, reverse("staff_manage"))
+        self.assertFalse(Staff.objects.filter(company=self.company).exists())
+        self.assertTrue(Staff.objects.filter(pk=other_staff.pk).exists())
+        self.assertFalse(
+            CompanyMembership.objects.filter(
+                company=self.company,
+                user=staff_user,
+                role=CompanyMembership.Role.STAFF,
+            ).exists()
+        )
+        self.assertTrue(
+            CompanyMembership.objects.filter(
+                company=self.company,
+                user=self.user,
+                role=CompanyMembership.Role.ADMIN,
+            ).exists()
+        )
+        self.assertFalse(StaffSkill.objects.filter(staff__company=self.company).exists())
+        self.assertFalse(
+            IndividualConstraint.objects.filter(company=self.company).exists()
+        )
+        self.assertFalse(
+            AvailabilitySubmission.objects.filter(staff__company=self.company).exists()
+        )
+        self.assertFalse(
+            PreviousMonthShiftDay.objects.filter(company=self.company).exists()
+        )
+        self.assertFalse(ShiftPeriod.objects.filter(company=self.company).exists())
+        self.assertTrue(WorkType.objects.filter(pk=work.pk).exists())
+        self.assertTrue(SkillLevel.objects.filter(pk=level.pk).exists())
+
     def test_cannot_edit_other_company_data(self):
         work = WorkType.objects.create(company=self.other_company, name="他社業務")
         response = self.client.get(reverse("work_edit", args=[work.pk]))
@@ -205,7 +311,7 @@ class ManagerCrudTests(TestCase):
         )
         self.assertEqual(sheet["A2"].value, "S001")
         self.assertEqual(sheet["C2"].value, 8)
-        self.assertEqual(sheet["D2"].value, "単休不可")
+        self.assertEqual(sheet["D2"].value, "ベース2勤1休;可能な限り4勤不可")
         self.assertEqual(sheet["E2"].value, "◎")
         self.assertEqual(
             [sheet.cell(row=row, column=3).value for row in range(2, 32)],
@@ -1501,6 +1607,124 @@ class ManagerCrudTests(TestCase):
         self.assertContains(response, "下書き")
         self.assertNotContains(response, submitted_staff.name)
         self.assertNotContains(response, "社員 応援")
+
+    def test_availability_import_marks_staff_as_submitted_by_employee_number(self):
+        submitted_staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="提出済み 太郎",
+        )
+        missing_staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S200",
+            name="未提出 花子",
+        )
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "公休申請"
+        sheet.append(["社員番号", "氏名", "2026/7/1", "2026/7/2"])
+        sheet.append(["S100", submitted_staff.name, "公休", "有給"])
+        sheet.append(["S200", missing_staff.name, "", ""])
+        file_obj = BytesIO()
+        file_obj.name = "availability.xlsx"
+        workbook.save(file_obj)
+        file_obj.seek(0)
+
+        response = self.client.post(
+            reverse("missing_submissions"),
+            {
+                "month": "2026-07",
+                "file": file_obj,
+            },
+        )
+
+        self.assertRedirects(response, f"{reverse('missing_submissions')}?month=2026-07")
+        submission = AvailabilitySubmission.objects.get(
+            staff=submitted_staff,
+            month=date(2026, 7, 1),
+        )
+        self.assertEqual(submission.status, AvailabilitySubmission.Status.SUBMITTED)
+        self.assertTrue(
+            AvailabilityDay.objects.filter(
+                submission=submission,
+                day=date(2026, 7, 1),
+                preferred_off=True,
+            ).exists()
+        )
+        self.assertTrue(
+            AvailabilityDay.objects.filter(
+                submission=submission,
+                day=date(2026, 7, 2),
+                paid_leave=True,
+            ).exists()
+        )
+
+        response = self.client.get(reverse("missing_submissions"), {"month": "2026-07"})
+
+        self.assertEqual(response.context["submitted_count"], 1)
+        self.assertEqual(response.context["missing_count"], 1)
+        self.assertContains(response, missing_staff.name)
+        self.assertNotContains(response, submitted_staff.name)
+
+    def test_availability_import_rejects_staff_over_request_limit(self):
+        staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="提出済み 太郎",
+            desired_off_limit=1,
+        )
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "公休申請"
+        sheet.append(["社員番号", "氏名", "2026/7/1", "2026/7/2"])
+        sheet.append(["S100", staff.name, "公休", "有給"])
+        file_obj = BytesIO()
+        file_obj.name = "availability.xlsx"
+        workbook.save(file_obj)
+        file_obj.seek(0)
+
+        response = self.client.post(
+            reverse("missing_submissions"),
+            {
+                "month": "2026-07",
+                "file": file_obj,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "申請上限を超えているスタッフ")
+        self.assertFalse(AvailabilitySubmission.objects.filter(staff=staff).exists())
+
+    def test_availability_request_limit_can_be_bulk_updated_from_missing_page(self):
+        first = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="青木 太郎",
+            desired_off_limit=4,
+        )
+        second = Staff.objects.create(
+            company=self.company,
+            employee_number="S200",
+            name="田中 花子",
+            desired_off_limit=5,
+        )
+
+        response = self.client.post(
+            reverse("missing_submissions"),
+            {
+                "action": "bulk_limit",
+                "desired_off_limit": "6",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("missing_submissions"), response["Location"])
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.default_desired_off_limit, 6)
+        self.assertEqual(first.desired_off_limit, 6)
+        self.assertEqual(second.desired_off_limit, 6)
 
     def test_admin_can_approve_sudden_leave_with_replacement(self):
         original = Staff.objects.create(

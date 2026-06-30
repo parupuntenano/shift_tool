@@ -14,6 +14,7 @@ from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.http import HttpResponse
+from django.db import transaction
 from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
@@ -58,6 +59,7 @@ from shifts.infrastructure.models import (
 from shifts.infrastructure.repositories import DjangoShiftRepository
 from .company import admin_required, current_membership, staff_required
 from .forms import (
+    AvailabilityImportForm,
     BulkDesiredOffLimitForm,
     ConstraintForm,
     ConstraintTypeForm,
@@ -247,6 +249,45 @@ def missing_submissions(request):
     current_month = timezone.localdate().replace(day=1)
     prev_month = _add_months(month, -1)
     next_month = _add_months(month, 1)
+    import_form = AvailabilityImportForm(initial={"month": month})
+    bulk_limit_form = BulkDesiredOffLimitForm(
+        initial={"desired_off_limit": request.company.default_desired_off_limit}
+    )
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "bulk_limit":
+            bulk_limit_form = BulkDesiredOffLimitForm(request.POST)
+            if bulk_limit_form.is_valid():
+                limit = bulk_limit_form.cleaned_data["desired_off_limit"]
+                request.company.default_desired_off_limit = limit
+                request.company.save(update_fields=["default_desired_off_limit"])
+                count = Staff.objects.filter(company=request.company).update(
+                    desired_off_limit=limit
+                )
+                messages.success(
+                    request,
+                    f"公休・有休の申請上限を{limit}日に変更しました。（{count}名へ反映）",
+                )
+                return redirect(f"{reverse('missing_submissions')}?month={month:%Y-%m}")
+        else:
+            import_form = AvailabilityImportForm(request.POST, request.FILES)
+        if action != "bulk_limit" and import_form.is_valid():
+            month = import_form.cleaned_data["month"].replace(day=1)
+            try:
+                result = _import_availability_submissions(
+                    request.company,
+                    month,
+                    import_form.cleaned_data["file"],
+                )
+            except ValueError as exc:
+                import_form.add_error("file", str(exc))
+            else:
+                messages.success(
+                    request,
+                    f"{month.year}年{month.month}月の公休申請を{result['staff']}名分取り込みました。"
+                    f"公休{result['preferred_off']}件、有給{result['paid_leave']}件を反映しました。",
+                )
+                return redirect(f"{reverse('missing_submissions')}?month={month:%Y-%m}")
     target_staff = list(
         Staff.objects.filter(
             company=request.company,
@@ -289,6 +330,8 @@ def missing_submissions(request):
             "submitted_count": len(submitted_staff_ids),
             "missing_staff_rows": missing_staff_rows,
             "missing_count": len(missing_staff_rows),
+            "import_form": import_form,
+            "bulk_limit_form": bulk_limit_form,
         },
     )
 
@@ -357,6 +400,40 @@ def staff_delete(request, pk):
         reverse("staff_manage"),
         "staff_manage",
         delete_staff_membership if user_id else None,
+    )
+
+
+@login_required
+@admin_required
+def staff_bulk_delete(request):
+    staff_qs = Staff.objects.filter(company=request.company)
+    staff_count = staff_qs.count()
+    if request.method == "POST":
+        user_ids = list(
+            staff_qs.exclude(user=None).values_list("user_id", flat=True)
+        )
+        with transaction.atomic():
+            # スタッフに紐づく作成済みシフトは、割当がStaff削除を保護するため先に削除する。
+            ShiftPeriod.objects.filter(company=request.company).delete()
+            CompanyMembership.objects.filter(
+                company=request.company,
+                user_id__in=user_ids,
+                role=CompanyMembership.Role.STAFF,
+            ).delete()
+            deleted_count, _details = staff_qs.delete()
+        messages.success(
+            request,
+            f"スタッフ情報を全削除しました。（関連データを含む削除件数：{deleted_count}件）",
+        )
+        return redirect("staff_manage")
+
+    return render(
+        request,
+        "shifts/confirm_delete.html",
+        {
+            "label": f"スタッフ情報 全{staff_count}名分（作成済みシフト・提出データ・スキル・制約を含む）",
+            "cancel_url": reverse("staff_manage"),
+        },
     )
 
 
@@ -843,7 +920,8 @@ def _skill_import_template_workbook(company):
         ["業務列", "スキル表の公休数・備考の後ろには、業務マスタと同じ業務名を見出しとして追加します。"],
         ["スキル区分", "スキル区分シートの記号・意味・優先度・アサイン可を取込時に自動設定します。"],
         ["先月シフト実績", "マスタ取込後にこのシートを使って、前月の月末7日分の勤務・公休・有給を取り込めます。"],
-        ["備考例", "2勤1休 / 4勤不可 / 単休不可"],
+        ["備考例", "ベース2勤1休 / 3勤1休 / 可能な限り4勤不可"],
+        ["備考例", "4勤以上不可 / 4連勤不可 / 単休不可"],
         ["備考例", "業務Aと業務B交互 / 業務A連続不可 / 業務B禁止"],
     ]
     for row in guide_rows:
@@ -937,32 +1015,32 @@ SAMPLE_STAFF_ROWS = [
     [f"S{index:03}", f"スタッフ{index:02}", 8 + ((index - 1) % 4), note, *skills]
     for index, (note, skills) in enumerate(
         [
-            ("単休不可", ("◎", "○", "△", "○", "◎", "○")),
+            ("ベース2勤1休;可能な限り4勤不可", ("◎", "○", "△", "○", "◎", "○")),
             ("ロールとエーカス交互;ロール連続不可", ("○", "◎", "◎", "△", "○", "○")),
             ("受付禁止", ("×", "○", "◎", "○", "△", "◎")),
-            ("4勤不可", ("◎", "△", "○", "◎", "○", "△")),
+            ("4勤以上不可", ("◎", "△", "○", "◎", "○", "△")),
             ("エーカス連続不可;単休不可", ("○", "◎", "○", "△", "◎", "○")),
-            ("", ("◎", "×", "○", "○", "◎", "△")),
+            ("土日祝は公休", ("◎", "×", "○", "○", "◎", "△")),
             ("2勤1休", ("△", "◎", "○", "◎", "○", "○")),
-            ("単休不可", ("○", "○", "◎", "○", "△", "◎")),
+            ("単休不可;可能な限り5勤不可", ("○", "○", "◎", "○", "△", "◎")),
             ("受付とロール交互;受付連続不可", ("◎", "◎", "△", "○", "○", "◎")),
-            ("", ("○", "△", "◎", "◎", "○", "○")),
+            ("ベース3勤1休", ("○", "△", "◎", "◎", "○", "○")),
             ("4勤不可;単休不可", ("◎", "○", "×", "○", "◎", "△")),
-            ("ロール禁止", ("○", "×", "◎", "△", "○", "◎")),
+            ("ロール禁止;土日祝は公休", ("○", "×", "◎", "△", "○", "◎")),
             ("2勤1休", ("△", "○", "◎", "◎", "○", "○")),
-            ("受付連続不可", ("◎", "○", "○", "△", "◎", "○")),
+            ("受付連続不可;可能な限り4勤不可", ("◎", "○", "○", "△", "◎", "○")),
             ("エーカス禁止", ("○", "◎", "×", "○", "△", "◎")),
-            ("", ("○", "◎", "○", "◎", "○", "△")),
+            ("土日祝は公休", ("○", "◎", "○", "◎", "○", "△")),
             ("単休不可", ("◎", "△", "○", "○", "◎", "○")),
-            ("ロールとエーカス交互", ("○", "◎", "◎", "△", "○", "○")),
+            ("ロールとエーカス交互;ベース2勤1休", ("○", "◎", "◎", "△", "○", "○")),
             ("4勤不可", ("△", "○", "◎", "◎", "○", "○")),
             ("受付禁止", ("×", "◎", "○", "○", "△", "◎")),
-            ("", ("◎", "○", "○", "△", "◎", "○")),
+            ("ベース3勤1休;可能な限り5勤不可", ("◎", "○", "○", "△", "◎", "○")),
             ("2勤1休;単休不可", ("○", "◎", "△", "◎", "○", "○")),
             ("ロール連続不可", ("◎", "○", "◎", "○", "△", "◎")),
-            ("エーカス連続不可", ("○", "△", "◎", "◎", "○", "○")),
+            ("エーカス連続不可;土日祝は公休", ("○", "△", "◎", "◎", "○", "○")),
             ("4勤不可", ("◎", "◎", "○", "△", "○", "○")),
-            ("", ("○", "○", "◎", "○", "◎", "△")),
+            ("ベース2勤1休", ("○", "○", "◎", "○", "◎", "△")),
             ("単休不可", ("△", "◎", "○", "◎", "○", "○")),
             ("受付とロール交互", ("◎", "◎", "△", "○", "○", "◎")),
             ("ロール禁止", ("○", "×", "◎", "△", "◎", "○")),
@@ -1232,6 +1310,23 @@ def _previous_shift_rows_from_file(file_obj):
     raise ValueError("先月シフト実績は .xlsx または .csv で取り込んでください。")
 
 
+def _rows_from_excel_or_csv(file_obj, *, sheet_name=None, label="ファイル"):
+    suffix = Path(file_obj.name).suffix.lower()
+    file_obj.seek(0)
+    if suffix == ".csv":
+        text = file_obj.read().decode("utf-8-sig")
+        return list(csv.reader(StringIO(text)))
+    if suffix == ".xlsx":
+        workbook = load_workbook(file_obj, data_only=True)
+        sheet = (
+            workbook[sheet_name]
+            if sheet_name and sheet_name in workbook.sheetnames
+            else workbook.active
+        )
+        return [list(row) for row in sheet.iter_rows(values_only=True)]
+    raise ValueError(f"{label}は .xlsx または .csv で取り込んでください。")
+
+
 def _classify_previous_shift_cell(raw_value, work_map):
     value = str(raw_value or "").strip()
     compact = value.replace(" ", "").replace("　", "")
@@ -1315,6 +1410,116 @@ def _import_previous_shift_days(company, month, file_obj):
         "skipped": skipped,
         "from": import_from.isoformat(),
         "to": import_to.isoformat(),
+    }
+
+
+def _availability_rows_from_file(file_obj):
+    rows = _rows_from_excel_or_csv(file_obj, sheet_name="公休申請", label="公休申請")
+    if not rows:
+        raise ValueError("取込対象の行がありません。")
+    return rows
+
+
+def _employee_number_column(headers):
+    candidates = ("社員番号", "従業員番号", "スタッフ番号", "コード", "ID", "id")
+    for candidate in candidates:
+        if candidate in headers:
+            return headers.index(candidate)
+    raise ValueError("見出しに「社員番号」列が必要です。")
+
+
+def _classify_availability_cell(raw_value):
+    value = str(raw_value or "").strip()
+    compact = value.replace(" ", "").replace("　", "")
+    if compact in PAID_LEAVE_TOKENS:
+        return "paid"
+    if compact in PUBLIC_HOLIDAY_TOKENS:
+        return "off"
+    return "available"
+
+
+def _import_availability_submissions(company, month, file_obj):
+    rows = _availability_rows_from_file(file_obj)
+    headers = [str(value or "").strip() for value in rows[0]]
+    employee_index = _employee_number_column(headers)
+    day_columns = [
+        (index, day)
+        for index, header in enumerate(rows[0])
+        if index != employee_index
+        for day in [_previous_shift_day_from_header(header, month)]
+        if day and day.year == month.year and day.month == month.month
+    ]
+
+    staff_map = {
+        staff.employee_number: staff
+        for staff in Staff.objects.filter(company=company, active=True)
+    }
+    imported_staff_ids = set()
+    preferred_off_count = 0
+    paid_leave_count = 0
+    over_limit_errors = []
+    parsed_submissions = []
+
+    for raw_row in rows[1:]:
+        row = list(raw_row) + [""] * max(0, len(headers) - len(raw_row))
+        employee_number = str(row[employee_index] or "").strip()
+        if not employee_number:
+            continue
+        staff = staff_map.get(employee_number)
+        if not staff:
+            raise ValueError(f"社員番号「{employee_number}」のスタッフが登録されていません。")
+
+        requested_days = []
+        for index, day in day_columns:
+            state = _classify_availability_cell(row[index] if index < len(row) else "")
+            if state != "available":
+                requested_days.append((day, state))
+        if not requested_days:
+            continue
+        if len(requested_days) > staff.desired_off_limit:
+            over_limit_errors.append(
+                f"{staff.employee_number} {staff.name}: {len(requested_days)}日 / 上限{staff.desired_off_limit}日"
+            )
+            continue
+        parsed_submissions.append((staff, requested_days))
+
+    if over_limit_errors:
+        raise ValueError(
+            "公休・有休の申請上限を超えているスタッフがいます。"
+            + " / ".join(over_limit_errors[:10])
+        )
+    if not parsed_submissions:
+        raise ValueError("公休または有休が入力されているスタッフが見つかりませんでした。")
+
+    for staff, requested_days in parsed_submissions:
+        submission, _ = AvailabilitySubmission.objects.update_or_create(
+            staff=staff,
+            month=month,
+            defaults={
+                "status": AvailabilitySubmission.Status.SUBMITTED,
+                "submitted_at": timezone.now(),
+            },
+        )
+        submission.days.all().delete()
+        imported_staff_ids.add(staff.id)
+
+        for day, state in requested_days:
+            preferred_off = state == "off"
+            paid_leave = state == "paid"
+            preferred_off_count += int(preferred_off)
+            paid_leave_count += int(paid_leave)
+            AvailabilityDay.objects.create(
+                submission=submission,
+                day=day,
+                available=False,
+                preferred_off=preferred_off,
+                paid_leave=paid_leave,
+            )
+
+    return {
+        "staff": len(imported_staff_ids),
+        "preferred_off": preferred_off_count,
+        "paid_leave": paid_leave_count,
     }
 
 
@@ -1669,6 +1874,14 @@ def _period_rows(period, works=None):
     work_options_by_staff = _assignable_work_options_by_staff(
         period.company, staff_list, works
     )
+    skill_map = {
+        (item.staff_id, item.work_type_id): item
+        for item in StaffSkill.objects.filter(
+            staff__company=period.company,
+            staff__in=staff_list,
+            work_type__in=works,
+        ).select_related("level")
+    }
     assignment_map = {
         (item.staff_id, item.day.day): item
         for item in period.assignments.select_related("staff", "work_type")
@@ -1703,6 +1916,11 @@ def _period_rows(period, works=None):
         cells = []
         for day in days:
             assignment = assignment_map.get((staff.id, day["number"]))
+            assignment_skill = (
+                skill_map.get((staff.id, assignment.work_type_id))
+                if assignment and assignment.work_type_id
+                else None
+            )
             day_date = day["date"]
             rest_kind = ""
             rest_label = ""
@@ -1726,6 +1944,14 @@ def _period_rows(period, works=None):
                     "rest_label": rest_label,
                     "assignment_work_is_option": (
                         not assignment or assignment.work_type_id in work_option_ids
+                    ),
+                    "assignment_is_trainee": (
+                        bool(assignment_skill)
+                        and _skill_level_is_trainee(assignment_skill.level)
+                    ),
+                    "assignment_is_instructor": (
+                        bool(assignment_skill)
+                        and _skill_level_is_instructor(assignment_skill.level)
                     ),
                 }
             )
@@ -2298,6 +2524,8 @@ def _shift_edit_support(period, days, rows, works):
     public_holiday_rows = []
     for row in rows:
         difference = row["public_holiday_count"] - row["public_holiday_target"]
+        if difference == 0:
+            continue
         public_holiday_rows.append(
             {
                 "staff": row["staff"],
@@ -2326,6 +2554,11 @@ def _shift_edit_support(period, days, rows, works):
 def _skill_level_is_trainee(level) -> bool:
     text = f"{level.symbol} {level.meaning}".replace(" ", "").replace("　", "")
     return any(word in text for word in ("研修", "訓練"))
+
+
+def _skill_level_is_instructor(level) -> bool:
+    text = f"{level.symbol} {level.meaning}".replace(" ", "").replace("　", "")
+    return any(word in text for word in ("指導", "教官", "主担当", "リーダー"))
 
 
 def _refresh_period_constraint_warnings(period):

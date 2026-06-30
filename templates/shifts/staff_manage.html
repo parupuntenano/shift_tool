@@ -7,6 +7,12 @@
       <h1>スタッフ管理</h1>
       <p>社員番号、氏名、公休数、有効状態を管理します。</p>
     </div>
+    <div class="actions">
+      <a class="btn btn-outline-danger" href="{% url 'staff_bulk_delete' %}">
+        <i class="bi bi-trash3"></i>
+        スタッフ情報を全削除
+      </a>
+    </div>
   </header>
   <div class="content-grid">
     <section class="panel">

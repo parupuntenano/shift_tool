@@ -70,6 +70,14 @@ class PreviousShiftImportForm(forms.Form):
     file = forms.FileField(label="先月シフト実績ファイル")
 
 
+class AvailabilityImportForm(forms.Form):
+    month = MonthField(label="対象月")
+    file = forms.FileField(
+        label="公休申請ファイル",
+        help_text="社員番号列がある .xlsx / .csv を取り込めます。",
+    )
+
+
 class WorkTypeForm(forms.ModelForm):
     class Meta:
         model = WorkType
