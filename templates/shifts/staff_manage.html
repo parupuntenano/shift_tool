@@ -5,30 +5,18 @@
     <div>
       <span class="kicker">MASTER</span>
       <h1>スタッフ管理</h1>
-      <p>社員番号、ログイン情報、有効状態を管理します。</p>
+      <p>社員番号、氏名、公休数、有効状態を管理します。</p>
     </div>
   </header>
   <div class="content-grid">
     <section class="panel">
-      <form method="post" action="{% url 'staff_manage' %}" class="bulk-limit-panel">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="bulk_limit">
-        <div>
-          <strong>公有給希望上限の一括変更</strong>
-          <small>公休希望＋有給希望の申請上限を、全スタッフへまとめて反映します。</small>
-        </div>
-        {{ bulk_limit_form.desired_off_limit }}
-        <button class="btn btn-primary">全員へ反映</button>
-      </form>
       <div class="table-responsive">
         <table class="table align-middle">
           <thead>
             <tr>
               <th>社員番号</th>
               <th>氏名</th>
-              <th>ログインID</th>
               <th>公休数</th>
-              <th>希望上限</th>
               <th>区分</th>
               <th>状態</th>
               <th>備考</th>
@@ -40,9 +28,7 @@
               <tr>
                 <td>{{ item.employee_number }}</td>
                 <td class="fw-bold staff-name-cell">{{ item.name }}</td>
-                <td>{{ item.user.username|default:'未設定' }}</td>
                 <td>{{ item.monthly_public_holidays }}日</td>
-                <td>{{ item.desired_off_limit }}日</td>
                 <td>
                   {% if item.is_employee %}
                     <span class="status published">社員</span>
@@ -67,7 +53,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="9" class="empty">スタッフが未登録です。</td>
+                <td colspan="7" class="empty">スタッフが未登録です。</td>
               </tr>
             {% endfor %}
           </tbody>

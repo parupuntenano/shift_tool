@@ -20,7 +20,7 @@ from shifts.infrastructure.models import (
 
 
 class Command(BaseCommand):
-    help = "デモ企業・管理者・スタッフ・提出データを登録します"
+    help = "デモ企業・管理者・スタッフ・スキルを登録します"
 
     def handle(self, *args, **options):
         company, _ = Company.objects.get_or_create(
@@ -133,21 +133,14 @@ class Command(BaseCommand):
             )
             works.append(work)
 
-        month = timezone.localdate().replace(day=1)
         for index, name in enumerate(
             ("スタッフ01", "スタッフ02", "スタッフ03", "スタッフ04", "スタッフ05"),
             1,
         ):
-            user, _ = User.objects.get_or_create(username=f"staff{index}")
-            user.set_password("staff123")
-            user.save()
-            CompanyMembership.objects.update_or_create(
-                company=company, user=user, defaults={"role": "staff"}
-            )
             staff, _ = Staff.objects.update_or_create(
                 company=company,
                 employee_number=f"S{index:03}",
-                defaults={"name": name, "user": user, "active": True},
+                defaults={"name": name, "active": True},
             )
             for work_index, work in enumerate(works):
                 level = levels[
@@ -160,23 +153,6 @@ class Command(BaseCommand):
                 StaffSkill.objects.update_or_create(
                     staff=staff, work_type=work, defaults={"level": level}
                 )
-            submission, _ = AvailabilitySubmission.objects.get_or_create(
-                staff=staff, month=month
-            )
-            for day_number in range(
-                1, calendar.monthrange(month.year, month.month)[1] + 1
-            ):
-                AvailabilityDay.objects.update_or_create(
-                    submission=submission,
-                    day=month.replace(day=day_number),
-                    defaults={
-                        "available": True,
-                        "preferred_off": day_number % (index + 5) == 0,
-                    },
-                )
-            submission.status = "submitted"
-            submission.submitted_at = timezone.now()
-            submission.save()
         first_staff = Staff.objects.filter(company=company).first()
         IndividualConstraint.objects.get_or_create(
             company=company,
@@ -191,6 +167,6 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.SUCCESS(
-                "デモデータを登録しました。管理者: admin / admin123、スタッフ: staff1 / staff123"
+                "デモデータを登録しました。管理者: admin / admin123"
             )
         )

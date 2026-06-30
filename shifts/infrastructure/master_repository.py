@@ -1,10 +1,9 @@
 import re
 
 from django.db import transaction
-from django.contrib.auth import get_user_model
 
 from shifts.domain.import_data import ImportedSkillMap
-from .models import Company, CompanyMembership, SkillLevel, Staff, StaffSkill, WorkType
+from .models import Company, SkillLevel, Staff, StaffSkill, WorkType
 from .models import ConstraintType, IndividualConstraint
 
 
@@ -50,7 +49,6 @@ class DjangoMasterRepository:
     def save_skill_map(self, company_id: int, data: ImportedSkillMap) -> dict[str, int]:
         staff_count = skill_count = account_count = constraint_count = level_count = 0
         work_count = 0
-        User = get_user_model()
         company = Company.objects.get(pk=company_id)
 
         for index, work_row in enumerate(data.work_types, start=1):
@@ -90,27 +88,6 @@ class DjangoMasterRepository:
                     "desired_off_limit": company.default_desired_off_limit,
                     "active": True,
                 },
-            )
-            if not staff.user_id:
-                user = User.objects.filter(username=row.employee_number).first()
-                if user and (
-                    Staff.objects.filter(user=user).exclude(pk=staff.pk).exists()
-                    or user.company_memberships.exists()
-                ):
-                    raise ValueError(
-                        f"社員番号「{row.employee_number}」は別のログインアカウントで使用されています。"
-                    )
-                if not user:
-                    user = User(username=row.employee_number)
-                    user.set_password("0000")
-                    user.save()
-                staff.user = user
-                staff.save(update_fields=["user"])
-                account_count += 1
-            CompanyMembership.objects.get_or_create(
-                company_id=company_id,
-                user=staff.user,
-                defaults={"role": CompanyMembership.Role.STAFF},
             )
             staff_count += 1
             for work_name, symbol in row.skills.items():

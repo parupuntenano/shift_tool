@@ -1,8 +1,6 @@
 from datetime import date
 
 from django import forms
-from django.contrib.auth import get_user_model
-
 from shifts.infrastructure.models import (
     ConstraintType,
     IndividualConstraint,
@@ -31,25 +29,11 @@ class MonthField(forms.DateField):
 
 
 class StaffForm(forms.ModelForm):
-    username = forms.CharField(
-        label="ログインID",
-        required=False,
-        help_text="未入力の場合は社員番号を使用します",
-    )
-    password = forms.CharField(
-        label="パスワード",
-        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
-        required=False,
-        help_text="編集時に空欄のままなら現在のパスワードを維持します",
-    )
-
     class Meta:
         model = Staff
         fields = [
             "employee_number",
             "name",
-            "username",
-            "password",
             "monthly_public_holidays",
             "is_employee",
             "note",
@@ -59,28 +43,12 @@ class StaffForm(forms.ModelForm):
             "monthly_public_holidays": forms.NumberInput(attrs={"min": 0}),
         }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.instance and self.instance.pk and self.instance.user:
-            self.fields["username"].initial = self.instance.user.username
-
     def save_for_company(self, company, commit=True):
         staff = super().save(commit=False)
         is_new = staff.pk is None
         staff.company = company
         if is_new:
             staff.desired_off_limit = company.default_desired_off_limit
-        username = self.cleaned_data.get("username") or staff.employee_number
-        password = self.cleaned_data.get("password")
-        if username:
-            user, created = get_user_model().objects.get_or_create(username=username)
-            if password:
-                user.set_password(password)
-            elif created:
-                user.set_password("0000")
-            if created or password:
-                user.save()
-            staff.user = user
         if commit:
             staff.save()
         return staff

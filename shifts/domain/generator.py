@@ -117,6 +117,22 @@ class MonthlyShiftGenerator:
                 eligible_staff_counts=eligible_staff_counts,
                 pattern_anchor_by_staff=pattern_anchor_by_staff,
             )
+            self._assign_daily_trainees(
+                current=current,
+                staff_list=staff_list,
+                work_by_id=work_by_id,
+                skill_map=skill_map,
+                availability_map=availability_map,
+                rules=rules,
+                assigned_by_day=assigned_by_day,
+                assignments=assignments,
+                last_work=last_work,
+                total_assignments=total_assignments,
+                work_assignments=work_assignments,
+                assignable_work_counts=assignable_work_counts,
+                eligible_staff_counts=eligible_staff_counts,
+                pattern_anchor_by_staff=pattern_anchor_by_staff,
+            )
         current_month_assignments = tuple(
             item for item in assignments if item.day >= month
         )
@@ -427,7 +443,7 @@ class MonthlyShiftGenerator:
                 or (member.id, current) in assigned_by_day
             ):
                 continue
-            if rating.trainee and not instructor_assigned:
+            if rating.trainee:
                 continue
             if (
                 cls._consecutive_days(member.id, current, assignments)
@@ -474,6 +490,191 @@ class MonthlyShiftGenerator:
         candidates.sort()
         return candidates
 
+    @classmethod
+    def _assign_daily_trainees(
+        cls,
+        *,
+        current,
+        staff_list,
+        work_by_id,
+        skill_map,
+        availability_map,
+        rules,
+        assigned_by_day,
+        assignments,
+        last_work,
+        total_assignments,
+        work_assignments,
+        assignable_work_counts,
+        eligible_staff_counts,
+        pattern_anchor_by_staff,
+    ):
+        """必要人数を満たし、監督できる人がいる業務に研修者を追加配置する。"""
+
+        for work in sorted(
+            work_by_id.values(), key=lambda item: (item.display_order, item.id)
+        ):
+            if (
+                cls._effective_required_staff_count(
+                    work.id, current, assignments, skill_map
+                )
+                < max(1, work.required_staff_per_day)
+            ):
+                continue
+            supervision_slots = cls._available_supervision_slots(
+                work.id, current, assignments, skill_map
+            )
+            if supervision_slots <= 0:
+                continue
+            assigned_same_work = {
+                item.staff_id
+                for item in assignments
+                if item.day == current and item.work_id == work.id
+            }
+            if not cls._has_instructor_assigned(assigned_same_work, work.id, skill_map):
+                continue
+            while supervision_slots > 0:
+                candidates = cls._trainee_candidates(
+                    work,
+                    staff_list,
+                    skill_map,
+                    availability_map,
+                    assigned_by_day,
+                    current,
+                    assignments,
+                    rules,
+                    last_work,
+                    total_assignments,
+                    work_assignments,
+                    assignable_work_counts,
+                    eligible_staff_counts,
+                    pattern_anchor_by_staff,
+                )
+                if not candidates:
+                    break
+                cls._assign_candidate(
+                    candidates[0],
+                    current,
+                    assignments,
+                    assigned_by_day,
+                    total_assignments,
+                    work_assignments,
+                    last_work,
+                    {},
+                    count_toward_required=False,
+                )
+                supervision_slots -= 1
+
+    @classmethod
+    def _trainee_candidates(
+        cls,
+        work,
+        staff_list,
+        skill_map,
+        availability_map,
+        assigned_by_day,
+        current,
+        assignments,
+        rules,
+        last_work,
+        total_assignments,
+        work_assignments,
+        assignable_work_counts,
+        eligible_staff_counts,
+        pattern_anchor_by_staff,
+    ):
+        assigned_same_work = {
+            item.staff_id
+            for item in assignments
+            if item.day == current and item.work_id == work.id
+        }
+        candidates = []
+        for member in staff_list:
+            available = availability_map.get((member.id, current))
+            rating = skill_map.get((member.id, work.id))
+            if (
+                not available
+                or not available.available
+                or available.preferred_off
+                or available.paid_leave
+                or not rating
+                or not rating.assignable
+                or not rating.trainee
+                or (member.id, current) in assigned_by_day
+            ):
+                continue
+            if (
+                cls._consecutive_days(member.id, current, assignments)
+                >= member.max_consecutive_days
+            ):
+                continue
+            allowed, rule_penalty = cls._evaluate_rules(
+                member.id,
+                work.id,
+                current,
+                assigned_same_work,
+                assignments,
+                rules,
+                pattern_anchor_by_staff,
+            )
+            if not allowed:
+                continue
+            score = (
+                rule_penalty
+                + (SAME_WORK_PENALTY if last_work.get(member.id) == work.id else 0)
+                + (cls._effective_priority(rating) * SKILL_PRIORITY_WEIGHT)
+                + (total_assignments[member.id] * TOTAL_ASSIGNMENT_WEIGHT)
+                + (
+                    work_assignments[(member.id, work.id)]
+                    * SAME_WORK_ASSIGNMENT_WEIGHT
+                )
+                + (assignable_work_counts[member.id] * MULTI_SKILL_PENALTY)
+                - (
+                    max(0, 10 - eligible_staff_counts[work.id])
+                    * SHORT_STAFFED_WORK_BONUS
+                )
+            )
+            candidates.append(
+                Candidate(
+                    score=score,
+                    total_count=total_assignments[member.id],
+                    work_count=work_assignments[(member.id, work.id)],
+                    staff_id=member.id,
+                    work=work,
+                    member=member,
+                )
+            )
+        candidates.sort()
+        return candidates
+
+    @staticmethod
+    def _effective_required_staff_count(work_id, current, assignments, skill_map) -> int:
+        count = 0
+        for item in assignments:
+            if item.day != current or item.work_id != work_id:
+                continue
+            rating = skill_map.get((item.staff_id, item.work_id))
+            if rating and rating.trainee:
+                continue
+            count += 1
+        return count
+
+    @staticmethod
+    def _available_supervision_slots(work_id, current, assignments, skill_map) -> int:
+        instructor_count = 0
+        trainee_count = 0
+        for item in assignments:
+            if item.day != current or item.work_id != work_id:
+                continue
+            rating = skill_map.get((item.staff_id, item.work_id))
+            if not rating:
+                continue
+            if rating.trainee:
+                trainee_count += 1
+            elif rating.instructor_capable:
+                instructor_count += 1
+        return max(0, instructor_count - trainee_count)
+
     @staticmethod
     def _has_instructor_assigned(staff_ids, work_id, skill_map) -> bool:
         return any(
@@ -493,6 +694,7 @@ class MonthlyShiftGenerator:
         work_assignments,
         last_work,
         remaining_slots,
+        count_toward_required=True,
     ):
         work = candidate.work
         member = candidate.member
@@ -501,9 +703,10 @@ class MonthlyShiftGenerator:
         total_assignments[member.id] += 1
         work_assignments[(member.id, work.id)] += 1
         last_work[member.id] = work.id
-        remaining_slots[work.id] -= 1
-        if remaining_slots[work.id] <= 0:
-            del remaining_slots[work.id]
+        if count_toward_required:
+            remaining_slots[work.id] -= 1
+            if remaining_slots[work.id] <= 0:
+                del remaining_slots[work.id]
 
     @classmethod
     def _evaluate_rules(
@@ -671,9 +874,6 @@ class MonthlyShiftGenerator:
             for item in assignments
             if item.day == current and item.work_id == work.id
         }
-        instructor_assigned = cls._has_instructor_assigned(
-            assigned_same_work, work.id, skill_map
-        )
         for member in staff_list:
             available = availability_map.get((member.id, current))
             rating = skill_map.get((member.id, work.id))
@@ -687,7 +887,7 @@ class MonthlyShiftGenerator:
                 or (member.id, current) in assigned_by_day
             ):
                 continue
-            if rating.trainee and not instructor_assigned:
+            if rating.trainee:
                 continue
             if (
                 cls._consecutive_days(member.id, current, assignments)

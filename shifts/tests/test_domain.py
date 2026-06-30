@@ -116,7 +116,7 @@ class MonthlyShiftGeneratorTests(TestCase):
     def test_trainee_is_assigned_only_with_instructor_on_same_work(self):
         month = date(2026, 2, 1)
         staff = [StaffMember(1, "指導者"), StaffMember(2, "研修中")]
-        works = [Work(10, "受付", 2)]
+        works = [Work(10, "受付", 1)]
         skills = [
             SkillRating(
                 1,
@@ -142,6 +142,55 @@ class MonthlyShiftGeneratorTests(TestCase):
         self.assertEqual(
             sorted((item.staff_id, item.work_id) for item in result.assignments),
             [(1, 10), (2, 10)],
+        )
+
+    def test_trainee_is_not_assigned_until_required_staff_is_filled(self):
+        month = date(2026, 2, 1)
+        staff = [StaffMember(1, "指導者"), StaffMember(2, "研修中")]
+        works = [Work(10, "受付", 2)]
+        skills = [
+            SkillRating(1, 10, 1, True, instructor_capable=True),
+            SkillRating(2, 10, 3, True, trainee=True),
+        ]
+        availability = [Availability(1, month, True), Availability(2, month, True)]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability
+        )
+
+        self.assertEqual(
+            sorted((item.staff_id, item.work_id) for item in result.assignments),
+            [(1, 10)],
+        )
+        self.assertTrue(result.warnings)
+
+    def test_trainee_assignment_is_one_to_one_with_instructor(self):
+        month = date(2026, 2, 1)
+        staff = [
+            StaffMember(1, "指導者1"),
+            StaffMember(2, "指導者2"),
+            StaffMember(3, "研修中1"),
+            StaffMember(4, "研修中2"),
+            StaffMember(5, "研修中3"),
+        ]
+        works = [Work(10, "受付", 2)]
+        skills = [
+            SkillRating(1, 10, 1, True, instructor_capable=True),
+            SkillRating(2, 10, 1, True, instructor_capable=True),
+            SkillRating(3, 10, 3, True, trainee=True),
+            SkillRating(4, 10, 3, True, trainee=True),
+            SkillRating(5, 10, 3, True, trainee=True),
+        ]
+        availability = [Availability(staff_id, month, True) for staff_id in range(1, 6)]
+
+        result = MonthlyShiftGenerator().generate(
+            month, staff, works, skills, availability
+        )
+
+        self.assertEqual(len(result.assignments), 4)
+        self.assertEqual(
+            sum(1 for item in result.assignments if item.staff_id in {3, 4, 5}),
+            2,
         )
 
     def test_trainee_is_not_assigned_without_instructor(self):

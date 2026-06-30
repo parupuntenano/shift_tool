@@ -2,7 +2,6 @@ from datetime import date
 from io import BytesIO
 from unittest import TestCase
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase as DjangoTestCase
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
@@ -20,7 +19,6 @@ from shifts.infrastructure.models import (
     AvailabilityDay,
     AvailabilitySubmission,
     Company,
-    CompanyMembership,
     ConstraintType,
     IndividualConstraint,
     PreviousMonthShiftDay,
@@ -124,7 +122,7 @@ class MasterImportTests(DjangoTestCase):
             ).exists()
         )
 
-    def test_import_creates_staff_login_with_initial_password(self):
+    def test_import_does_not_create_staff_login_account(self):
         company = Company.objects.create(name="テスト", code="account-import-test")
         data = ImportedSkillMap((ImportedStaffRow("50592", "青木", "", {}),))
 
@@ -133,14 +131,8 @@ class MasterImportTests(DjangoTestCase):
         staff = Staff.objects.select_related("user").get(
             company=company, employee_number="50592"
         )
-        self.assertEqual(staff.user.username, "50592")
-        self.assertTrue(staff.user.check_password("0000"))
-        self.assertEqual(result["accounts"], 1)
-        self.assertTrue(
-            CompanyMembership.objects.filter(
-                company=company, user=staff.user, role=CompanyMembership.Role.STAFF
-            ).exists()
-        )
+        self.assertIsNone(staff.user)
+        self.assertEqual(result["accounts"], 0)
 
     def test_import_updates_staff_public_holidays_and_uses_company_request_limit(self):
         company = Company.objects.create(
@@ -264,19 +256,16 @@ class MasterImportTests(DjangoTestCase):
             )
         )
 
-    def test_reimport_does_not_reset_existing_password(self):
-        company = Company.objects.create(name="テスト", code="password-import-test")
+    def test_reimport_does_not_create_staff_login_account(self):
+        company = Company.objects.create(name="テスト", code="account-reimport-test")
         data = ImportedSkillMap((ImportedStaffRow("50592", "青木", "", {}),))
         repository = DjangoMasterRepository()
         repository.save_skill_map(company.id, data)
-        user = get_user_model().objects.get(username="50592")
-        user.set_password("changed-password")
-        user.save()
 
         result = repository.save_skill_map(company.id, data)
 
-        user.refresh_from_db()
-        self.assertTrue(user.check_password("changed-password"))
+        staff = Staff.objects.get(company=company, employee_number="50592")
+        self.assertIsNone(staff.user)
         self.assertEqual(result["accounts"], 0)
 
     def test_import_creates_work_constraints_from_note(self):

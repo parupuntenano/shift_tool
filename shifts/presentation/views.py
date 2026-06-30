@@ -176,11 +176,10 @@ def home(request):
     membership = current_membership(request)
     if not membership:
         return render(request, "shifts/no_company.html")
-    return redirect(
-        "manager_dashboard"
-        if membership.role == CompanyMembership.Role.ADMIN
-        else "submit_availability"
-    )
+    if membership.role == CompanyMembership.Role.ADMIN:
+        return redirect("manager_dashboard")
+    messages.error(request, "このローカル版は管理者のみ利用できます。")
+    return render(request, "shifts/no_company.html")
 
 
 @login_required
@@ -298,33 +297,10 @@ def missing_submissions(request):
 @admin_required
 def staff_manage(request):
     form = StaffForm()
-    bulk_limit_form = BulkDesiredOffLimitForm(
-        initial={"desired_off_limit": request.company.default_desired_off_limit}
-    )
-    if request.method == "POST" and request.POST.get("action") == "bulk_limit":
-        bulk_limit_form = BulkDesiredOffLimitForm(request.POST)
-        if bulk_limit_form.is_valid():
-            limit = bulk_limit_form.cleaned_data["desired_off_limit"]
-            request.company.default_desired_off_limit = limit
-            request.company.save(update_fields=["default_desired_off_limit"])
-            count = Staff.objects.filter(company=request.company).update(
-                desired_off_limit=limit
-            )
-            messages.success(
-                request,
-                f"公有給希望上限を{limit}日に変更しました。（{count}名へ反映）",
-            )
-            return redirect("staff_manage")
-    elif request.method == "POST":
+    if request.method == "POST":
         form = StaffForm(request.POST)
         if form.is_valid():
-            staff = form.save_for_company(request.company)
-            if staff.user:
-                CompanyMembership.objects.update_or_create(
-                    company=request.company,
-                    user=staff.user,
-                    defaults={"role": CompanyMembership.Role.STAFF},
-                )
+            form.save_for_company(request.company)
             messages.success(request, "スタッフを登録しました。")
             return redirect("staff_manage")
     return render(
@@ -332,7 +308,6 @@ def staff_manage(request):
         "shifts/staff_manage.html",
         {
             "form": form,
-            "bulk_limit_form": bulk_limit_form,
             "items": Staff.objects.filter(company=request.company).select_related(
                 "user"
             ),
@@ -345,17 +320,8 @@ def staff_manage(request):
 def staff_edit(request, pk):
     item = get_object_or_404(Staff, pk=pk, company=request.company)
     form = StaffForm(request.POST or None, instance=item)
-    bulk_limit_form = BulkDesiredOffLimitForm(
-        initial={"desired_off_limit": request.company.default_desired_off_limit}
-    )
     if request.method == "POST" and form.is_valid():
-        staff = form.save_for_company(request.company)
-        if staff.user:
-            CompanyMembership.objects.update_or_create(
-                company=request.company,
-                user=staff.user,
-                defaults={"role": CompanyMembership.Role.STAFF},
-            )
+        form.save_for_company(request.company)
         messages.success(request, "スタッフ情報を更新しました。")
         return redirect("staff_manage")
     return render(
@@ -363,7 +329,6 @@ def staff_edit(request, pk):
         "shifts/staff_manage.html",
         {
             "form": form,
-            "bulk_limit_form": bulk_limit_form,
             "items": Staff.objects.filter(company=request.company).select_related(
                 "user"
             ),
@@ -870,10 +835,9 @@ def _skill_import_template_workbook(company):
     guide = workbook.create_sheet("入力ルール")
     guide_rows = [
         ["項目", "入力内容"],
-        ["社員番号", "ログインIDにも使う番号です。必須です。"],
+        ["社員番号", "スタッフを照合するキーです。必須です。"],
         ["氏名", "スタッフ名です。必須です。"],
         ["公休数", "スタッフごとの月公休数です。スタッフ管理へ反映します。"],
-        ["希望上限", "Excelには記入不要です。スタッフ管理の一括変更で全スタッフへ反映します。"],
         ["備考", "勤務ルールにしたい条件を書きます。複数ある場合は ; で区切れます。"],
         ["業務マスタ", "業務名・必要人数・有効を入力します。業務名セルの塗りつぶし色がシフト表の色として反映されます。"],
         ["業務列", "スキル表の公休数・備考の後ろには、業務マスタと同じ業務名を見出しとして追加します。"],
@@ -899,7 +863,7 @@ def _skill_import_template_workbook(company):
 
 def _add_skill_sheet_comments(sheet):
     comments = {
-        "A1": "スタッフを照合するキーです。ログインIDにも使います。",
+        "A1": "スタッフを照合するキーです。",
         "B1": "スタッフ名です。",
         "C1": "スタッフごとの月公休数です。",
         "D1": "勤務ルールにしたい条件を書きます。例：2勤1休、単休不可、ロールとエーカス交互",
@@ -967,6 +931,48 @@ def _add_previous_shift_example_sheet(workbook, header_fill, header_font, rows):
     sheet.freeze_panes = "C2"
 
 
+SAMPLE_WORK_HEADERS = ["受付", "ロール", "エーカス", "検品", "出荷", "仕分け"]
+
+SAMPLE_STAFF_ROWS = [
+    [f"S{index:03}", f"スタッフ{index:02}", 8 + ((index - 1) % 4), note, *skills]
+    for index, (note, skills) in enumerate(
+        [
+            ("単休不可", ("◎", "○", "△", "○", "◎", "○")),
+            ("ロールとエーカス交互;ロール連続不可", ("○", "◎", "◎", "△", "○", "○")),
+            ("受付禁止", ("×", "○", "◎", "○", "△", "◎")),
+            ("4勤不可", ("◎", "△", "○", "◎", "○", "△")),
+            ("エーカス連続不可;単休不可", ("○", "◎", "○", "△", "◎", "○")),
+            ("", ("◎", "×", "○", "○", "◎", "△")),
+            ("2勤1休", ("△", "◎", "○", "◎", "○", "○")),
+            ("単休不可", ("○", "○", "◎", "○", "△", "◎")),
+            ("受付とロール交互;受付連続不可", ("◎", "◎", "△", "○", "○", "◎")),
+            ("", ("○", "△", "◎", "◎", "○", "○")),
+            ("4勤不可;単休不可", ("◎", "○", "×", "○", "◎", "△")),
+            ("ロール禁止", ("○", "×", "◎", "△", "○", "◎")),
+            ("2勤1休", ("△", "○", "◎", "◎", "○", "○")),
+            ("受付連続不可", ("◎", "○", "○", "△", "◎", "○")),
+            ("エーカス禁止", ("○", "◎", "×", "○", "△", "◎")),
+            ("", ("○", "◎", "○", "◎", "○", "△")),
+            ("単休不可", ("◎", "△", "○", "○", "◎", "○")),
+            ("ロールとエーカス交互", ("○", "◎", "◎", "△", "○", "○")),
+            ("4勤不可", ("△", "○", "◎", "◎", "○", "○")),
+            ("受付禁止", ("×", "◎", "○", "○", "△", "◎")),
+            ("", ("◎", "○", "○", "△", "◎", "○")),
+            ("2勤1休;単休不可", ("○", "◎", "△", "◎", "○", "○")),
+            ("ロール連続不可", ("◎", "○", "◎", "○", "△", "◎")),
+            ("エーカス連続不可", ("○", "△", "◎", "◎", "○", "○")),
+            ("4勤不可", ("◎", "◎", "○", "△", "○", "○")),
+            ("", ("○", "○", "◎", "○", "◎", "△")),
+            ("単休不可", ("△", "◎", "○", "◎", "○", "○")),
+            ("受付とロール交互", ("◎", "◎", "△", "○", "○", "◎")),
+            ("ロール禁止", ("○", "×", "◎", "△", "◎", "○")),
+            ("2勤1休", ("◎", "○", "○", "○", "△", "◎")),
+        ],
+        start=1,
+    )
+]
+
+
 def _skill_import_sample_workbook():
     # 実運用前にそのまま取り込んで試せるサンプル。
     # 対応画面: templates/shifts/import.html の「サンプルデータをダウンロード」
@@ -978,19 +984,7 @@ def _skill_import_sample_workbook():
 
     sheet = workbook.active
     sheet.title = "スキル表"
-    headers = ["社員番号", "氏名", "公休数", "備考", "受付", "ロール", "エーカス"]
-    sample_rows = [
-        ["S001", "スタッフ01", 8, "単休不可", "◎", "○", "△"],
-        ["S002", "スタッフ02", 9, "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
-        ["S003", "スタッフ03", 10, "受付禁止", "×", "○", "◎"],
-        ["S004", "スタッフ04", 11, "4勤不可", "◎", "△", "○"],
-        ["S005", "スタッフ05", 12, "エーカス連続不可;単休不可", "○", "◎", "○"],
-        ["S006", "スタッフ06", 13, "", "◎", "×", "○"],
-        ["S007", "スタッフ07", 14, "2勤1休", "△", "◎", "○"],
-        ["S008", "スタッフ08", 8, "単休不可", "○", "○", "◎"],
-        ["S009", "スタッフ09", 9, "受付とロール交互;受付連続不可", "◎", "◎", "△"],
-        ["S010", "スタッフ10", 10, "", "○", "△", "◎"],
-    ]
+    headers = ["社員番号", "氏名", "公休数", "備考", *SAMPLE_WORK_HEADERS]
 
     sheet.append(headers)
     for cell in sheet[1]:
@@ -998,19 +992,19 @@ def _skill_import_sample_workbook():
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
-    for row in sample_rows:
+    for row in SAMPLE_STAFF_ROWS:
         sheet.append(row)
 
     for cell in sheet["D"][1:]:
         cell.fill = note_fill
         cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-    for row in sheet.iter_rows(min_row=2, min_col=5, max_col=7):
+    for row in sheet.iter_rows(min_row=2, min_col=5, max_col=len(headers)):
         for cell in row:
             cell.fill = skill_fill
             cell.alignment = Alignment(horizontal="center")
 
-    for column_index, width in enumerate((14, 18, 12, 42, 12, 12, 12), start=1):
+    for column_index, width in enumerate((14, 18, 12, 42, 12, 12, 12, 12, 12, 12), start=1):
         sheet.column_dimensions[get_column_letter(column_index)].width = width
     sheet.freeze_panes = "A2"
 
@@ -1037,9 +1031,12 @@ def _skill_import_sample_workbook():
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
     for row in (
-        ["受付", 2, "有効", "#2563eb"],
-        ["ロール", 2, "有効", "#16a34a"],
-        ["エーカス", 2, "有効", "#f97316"],
+        ["受付", 3, "有効", "#2563eb"],
+        ["ロール", 3, "有効", "#16a34a"],
+        ["エーカス", 3, "有効", "#f97316"],
+        ["検品", 3, "有効", "#9333ea"],
+        ["出荷", 3, "有効", "#dc2626"],
+        ["仕分け", 3, "有効", "#0f766e"],
     ):
         work_sheet.append(row[:3])
         _apply_work_name_fill(work_sheet.cell(row=work_sheet.max_row, column=1), row[3])
@@ -1061,16 +1058,35 @@ def _skill_import_sample_workbook():
             ["S008", "スタッフ08", "受付", "公休", "公休", "エーカス", "ロール", "公休", "公休"],
             ["S009", "スタッフ09", "受付", "ロール", "受付", "ロール", "公休", "受付", "ロール"],
             ["S010", "スタッフ10", "公休", "エーカス", "受付", "ロール", "公休", "受付", "ロール"],
+            ["S011", "スタッフ11", "受付", "ロール", "公休", "エーカス", "受付", "公休", "ロール"],
+            ["S012", "スタッフ12", "公休", "エーカス", "ロール", "受付", "公休", "エーカス", "受付"],
+            ["S013", "スタッフ13", "ロール", "受付", "エーカス", "公休", "ロール", "受付", "公休"],
+            ["S014", "スタッフ14", "受付", "公休", "ロール", "エーカス", "受付", "ロール", "公休"],
+            ["S015", "スタッフ15", "エーカス", "ロール", "公休", "受付", "エーカス", "公休", "受付"],
+            ["S016", "スタッフ16", "ロール", "受付", "エーカス", "ロール", "公休", "受付", "エーカス"],
+            ["S017", "スタッフ17", "公休", "受付", "ロール", "公休", "エーカス", "受付", "ロール"],
+            ["S018", "スタッフ18", "エーカス", "ロール", "受付", "エーカス", "ロール", "受付", "公休"],
+            ["S019", "スタッフ19", "受付", "エーカス", "公休", "ロール", "受付", "エーカス", "ロール"],
+            ["S020", "スタッフ20", "公休", "ロール", "受付", "エーカス", "公休", "ロール", "受付"],
+            ["S021", "スタッフ21", "受付", "ロール", "エーカス", "受付", "ロール", "公休", "エーカス"],
+            ["S022", "スタッフ22", "ロール", "公休", "受付", "ロール", "エーカス", "受付", "公休"],
+            ["S023", "スタッフ23", "エーカス", "受付", "ロール", "公休", "エーカス", "受付", "ロール"],
+            ["S024", "スタッフ24", "受付", "エーカス", "公休", "ロール", "受付", "公休", "エーカス"],
+            ["S025", "スタッフ25", "ロール", "受付", "エーカス", "ロール", "受付", "エーカス", "公休"],
+            ["S026", "スタッフ26", "公休", "エーカス", "受付", "公休", "ロール", "エーカス", "受付"],
+            ["S027", "スタッフ27", "受付", "ロール", "公休", "エーカス", "受付", "ロール", "公休"],
+            ["S028", "スタッフ28", "エーカス", "受付", "ロール", "エーカス", "公休", "受付", "ロール"],
+            ["S029", "スタッフ29", "ロール", "公休", "エーカス", "受付", "ロール", "エーカス", "受付"],
+            ["S030", "スタッフ30", "受付", "ロール", "エーカス", "公休", "受付", "ロール", "エーカス"],
         ],
     )
 
     guide = workbook.create_sheet("入力ルール")
     guide_rows = [
         ["項目", "入力内容"],
-        ["このファイルの目的", "取込テスト用のサンプルです。スタッフ10人・業務3つ・1日6枠を登録できます。"],
-        ["社員番号", "取込後のログインIDにも使われます。初期パスワードは 0000 です。"],
+        ["このファイルの目的", "取込テスト用のサンプルです。スタッフ30人・業務6つ・1日18枠を登録できます。"],
+        ["社員番号", "スタッフを照合するキーです。"],
         ["公休数", "スタッフごとの月公休数です。スタッフ管理へ反映します。"],
-        ["希望上限", "Excelには記入不要です。スタッフ管理の一括変更で全スタッフへ反映します。"],
         ["備考", "勤務ルールへ自動変換される条件の例を入れています。不要なら空欄で問題ありません。"],
         ["業務マスタ", "業務名・必要人数・有効を業務管理へ反映します。業務色は業務名セルの塗りつぶし色から読み取ります。"],
         ["スキル表", "公休数・備考の後ろの業務名とセルの記号から、スタッフごとのスキルを登録します。"],
@@ -1132,17 +1148,8 @@ CSV_TEMPLATE_ROWS = [
 
 
 CSV_SAMPLE_ROWS = [
-    ["社員番号", "氏名", "公休数", "備考", "受付", "ロール", "エーカス"],
-    ["S001", "スタッフ01", 8, "単休不可", "◎", "○", "△"],
-    ["S002", "スタッフ02", 9, "ロールとエーカス交互;ロール連続不可", "○", "◎", "◎"],
-    ["S003", "スタッフ03", 10, "受付禁止", "×", "○", "◎"],
-    ["S004", "スタッフ04", 11, "4勤不可", "◎", "△", "○"],
-    ["S005", "スタッフ05", 12, "エーカス連続不可;単休不可", "○", "◎", "○"],
-    ["S006", "スタッフ06", 13, "", "◎", "×", "○"],
-    ["S007", "スタッフ07", 14, "2勤1休", "△", "◎", "○"],
-    ["S008", "スタッフ08", 8, "単休不可", "○", "○", "◎"],
-    ["S009", "スタッフ09", 9, "受付とロール交互;受付連続不可", "◎", "◎", "△"],
-    ["S010", "スタッフ10", 10, "", "○", "△", "◎"],
+    ["社員番号", "氏名", "公休数", "備考", *SAMPLE_WORK_HEADERS],
+    *SAMPLE_STAFF_ROWS,
 ]
 
 
@@ -1356,8 +1363,7 @@ def import_skill_map(request):
                 request,
                 f"スタッフ{result['staff']}件、スキル{result['skills']}件を取り込みました。"
                 f"スキル区分{result.get('levels', 0)}件を設定しました。"
-                f"備考から勤務ルール{result.get('constraints', 0)}件を反映しました。"
-                f"新規ログインアカウントは{result.get('accounts', 0)}件です。",
+                f"備考から勤務ルール{result.get('constraints', 0)}件を反映しました。",
             )
             return redirect("skill_map")
     return render(
@@ -2179,8 +2185,18 @@ def _shift_edit_support(period, days, rows, works):
             "day", "work_type__display_order", "staff__employee_number"
         )
     )
+    skills = {
+        (item.staff_id, item.work_type_id): item
+        for item in StaffSkill.objects.filter(
+            staff__company=period.company,
+            work_type__company=period.company,
+        ).select_related("level")
+    }
     assignment_counts = defaultdict(int)
     for assignment in assignments:
+        skill = skills.get((assignment.staff_id, assignment.work_type_id))
+        if skill and _skill_level_is_trainee(skill.level):
+            continue
         assignment_counts[(assignment.day, assignment.work_type_id)] += 1
 
     daily_shortages = []
@@ -2205,13 +2221,6 @@ def _shift_edit_support(period, days, rows, works):
             submission__staff__company=period.company,
             submission__month=period.month,
         ).select_related("submission")
-    }
-    skills = {
-        (item.staff_id, item.work_type_id): item
-        for item in StaffSkill.objects.filter(
-            staff__company=period.company,
-            work_type__company=period.company,
-        ).select_related("level")
     }
     pending_leave_map = {
         (item.staff_id, item.day): item
@@ -2312,6 +2321,11 @@ def _shift_edit_support(period, days, rows, works):
             daily_shortages or assignment_issues or public_holiday_has_issues
         ),
     }
+
+
+def _skill_level_is_trainee(level) -> bool:
+    text = f"{level.symbol} {level.meaning}".replace(" ", "").replace("　", "")
+    return any(word in text for word in ("研修", "訓練"))
 
 
 def _refresh_period_constraint_warnings(period):
