@@ -47,9 +47,6 @@
             <a class="{% if request.resolver_match.url_name == 'skill_manage' or request.resolver_match.url_name == 'skill_map' %}active{% endif %}"
                href="{% url 'skill_map' %}">
               <i class="bi bi-stars"></i>スキル管理</a>
-            <a class="{% if request.resolver_match.url_name == 'constraint_manage' %}active{% endif %}"
-               href="{% url 'constraint_manage' %}">
-              <i class="bi bi-sliders"></i>勤務ルール</a>
             <a class="{% if request.resolver_match.url_name == 'import_skill_map' or request.resolver_match.url_name == 'previous_shift_list' %}active{% endif %}"
                href="{% url 'import_skill_map' %}">
               <i class="bi bi-file-earmark-arrow-up"></i>Excel取込</a>

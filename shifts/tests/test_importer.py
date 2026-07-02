@@ -85,9 +85,8 @@ class SkillMapFileReaderTests(TestCase):
 
         self.assertEqual(result.work_types[0].color, "#22c55e")
 
-
 class MasterImportTests(DjangoTestCase):
-    def test_import_creates_constraints_from_note(self):
+    def test_import_keeps_note_without_creating_constraints(self):
         company = Company.objects.create(name="テスト", code="import-test")
         WorkType.objects.create(company=company, name="受付")
         data = ImportedSkillMap(
@@ -99,30 +98,10 @@ class MasterImportTests(DjangoTestCase):
         staff = Staff.objects.get(company=company)
         constraints = IndividualConstraint.objects.filter(company=company, staff=staff)
         self.assertEqual(staff.note, "2勤1休;4勤不可;単休不可")
-        self.assertEqual(result["constraints"], 3)
-        self.assertEqual(constraints.count(), 3)
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
-                text_value="2,1",
-                parameters__source="staff_note",
-            ).exists()
-        )
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.MAX_CONSECUTIVE,
-                numeric_value=3,
-                parameters__source="staff_note",
-            ).exists()
-        )
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.NO_SINGLE_REST,
-                parameters__source="staff_note",
-            ).exists()
-        )
+        self.assertEqual(result["constraints"], 0)
+        self.assertEqual(constraints.count(), 0)
 
-    def test_import_creates_soft_max_and_weekend_rest_constraints_from_note(self):
+    def test_import_does_not_create_soft_max_and_weekend_rest_constraints_from_note(self):
         company = Company.objects.create(name="テスト", code="complex-note-test")
         data = ImportedSkillMap(
             (
@@ -139,22 +118,9 @@ class MasterImportTests(DjangoTestCase):
 
         staff = Staff.objects.get(company=company, employee_number="S001")
         constraints = IndividualConstraint.objects.filter(company=company, staff=staff)
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.MAX_CONSECUTIVE,
-                numeric_value=3,
-                strength=4,
-            ).exists()
-        )
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.FORBID_WORKS_ON_WEEKDAYS,
-                weekdays=[5, 6],
-                strength=10,
-            ).exists()
-        )
+        self.assertEqual(constraints.count(), 0)
 
-    def test_import_saves_base_and_outside_base_rest_patterns_with_strengths(self):
+    def test_import_does_not_save_base_and_outside_base_rest_patterns(self):
         company = Company.objects.create(name="テスト", code="base-pattern-test")
         data = ImportedSkillMap(
             (
@@ -174,23 +140,7 @@ class MasterImportTests(DjangoTestCase):
         pattern_constraints = constraints.filter(
             rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
         )
-        self.assertEqual(pattern_constraints.count(), 2)
-        self.assertTrue(
-            pattern_constraints.filter(
-                name__contains="ベース勤務：2勤1休",
-                text_value="2,1",
-                strength=7,
-                parameters__pattern_role="base",
-            ).exists()
-        )
-        self.assertTrue(
-            pattern_constraints.filter(
-                name__contains="ベース外勤務：3勤1休",
-                text_value="3,1",
-                strength=4,
-                parameters__pattern_role="outside_base",
-            ).exists()
-        )
+        self.assertEqual(pattern_constraints.count(), 0)
 
     def test_base_pattern_does_not_auto_add_when_candidates_are_written(self):
         company = Company.objects.create(name="テスト", code="manual-candidate-test")
@@ -215,7 +165,7 @@ class MasterImportTests(DjangoTestCase):
                 rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
             ).values_list("text_value", "strength")
         )
-        self.assertEqual(patterns, {("3,1", 7), ("2,1", 4)})
+        self.assertEqual(patterns, set())
 
     def test_rest_pattern_without_base_does_not_auto_add_candidates(self):
         company = Company.objects.create(name="テスト", code="single-pattern-test")
@@ -240,7 +190,7 @@ class MasterImportTests(DjangoTestCase):
                 rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
             ).values_list("text_value", "strength")
         )
-        self.assertEqual(patterns, {("3,1", 4)})
+        self.assertEqual(patterns, set())
 
     def test_generation_rules_add_default_rest_pattern_candidates_when_note_has_no_pattern(self):
         company = Company.objects.create(name="テスト", code="default-pattern-test")
@@ -287,7 +237,7 @@ class MasterImportTests(DjangoTestCase):
             for rule in rules
             if rule.staff_id == staff.id and rule.operator == "work_rest_pattern"
         }
-        self.assertEqual(patterns, {"3,1"})
+        self.assertEqual(patterns, {"1,1", "2,1", "3,1", "4,1", "5,2"})
 
     def test_base_pattern_candidates_respect_specific_limits(self):
         company = Company.objects.create(name="テスト", code="base-limit-test")
@@ -312,10 +262,7 @@ class MasterImportTests(DjangoTestCase):
                 rule_type__operator=ConstraintType.Operator.WORK_REST_PATTERN,
             ).values_list("text_value", "strength")
         )
-        self.assertIn(("3,1", 7), patterns)
-        self.assertIn(("2,1", 4), patterns)
-        self.assertNotIn(("1,1", 4), patterns)
-        self.assertNotIn(("4,1", 4), patterns)
+        self.assertEqual(patterns, set())
 
     def test_import_does_not_create_staff_login_account(self):
         company = Company.objects.create(name="テスト", code="account-import-test")
@@ -463,10 +410,10 @@ class MasterImportTests(DjangoTestCase):
         self.assertIsNone(staff.user)
         self.assertEqual(result["accounts"], 0)
 
-    def test_import_creates_work_constraints_from_note(self):
+    def test_import_does_not_create_work_constraints_from_note(self):
         company = Company.objects.create(name="テスト", code="constraint-note-test")
-        work_a = WorkType.objects.create(company=company, name="ロール")
-        work_b = WorkType.objects.create(company=company, name="エーカス")
+        WorkType.objects.create(company=company, name="ロール")
+        WorkType.objects.create(company=company, name="エーカス")
         data = ImportedSkillMap(
             (
                 ImportedStaffRow(
@@ -482,28 +429,10 @@ class MasterImportTests(DjangoTestCase):
 
         staff = Staff.objects.get(company=company, employee_number="S001")
         constraints = IndividualConstraint.objects.filter(company=company, staff=staff)
-        self.assertEqual(result["constraints"], 3)
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.WORK_ALTERNATION,
-                work_type_a=work_a,
-                work_type_b=work_b,
-            ).exists()
-        )
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.AVOID_SPECIFIC_WORK,
-                work_type_a=work_a,
-            ).exists()
-        )
-        self.assertTrue(
-            constraints.filter(
-                rule_type__operator=ConstraintType.Operator.FORBID_SPECIFIC_WORK,
-                work_type_a=work_b,
-            ).exists()
-        )
+        self.assertEqual(result["constraints"], 0)
+        self.assertEqual(constraints.count(), 0)
 
-    def test_reimport_replaces_only_note_constraints(self):
+    def test_reimport_leaves_manual_constraints_and_does_not_create_note_constraints(self):
         company = Company.objects.create(name="テスト", code="constraint-reimport-test")
         rule_type = ConstraintType.objects.create(
             company=company,
@@ -533,19 +462,13 @@ class MasterImportTests(DjangoTestCase):
         )
 
         constraints = IndividualConstraint.objects.filter(company=company, staff=staff)
-        self.assertEqual(result["constraints"], 1)
-        self.assertEqual(constraints.filter(parameters__source="staff_note").count(), 1)
-        self.assertTrue(
-            constraints.filter(
-                parameters__source="staff_note",
-                text_value="3,1",
-            ).exists()
-        )
+        self.assertEqual(result["constraints"], 0)
+        self.assertEqual(constraints.filter(parameters__source="staff_note").count(), 0)
         self.assertTrue(constraints.filter(name="手入力メモ").exists())
 
 
 class ShiftRepositoryAvailabilityTests(DjangoTestCase):
-    def test_unsubmitted_staff_is_available_with_weekly_public_holidays(self):
+    def test_unsubmitted_staff_is_available_without_auto_public_holidays(self):
         company = Company.objects.create(name="テスト", code="auto-availability-test")
         staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
 
@@ -558,12 +481,9 @@ class ShiftRepositoryAvailabilityTests(DjangoTestCase):
         expected_first_off = (staff.id - 1) % 7 + 1
         self.assertEqual(len(staff_rows), 31)
         self.assertTrue(all(row.available for row in staff_rows))
-        self.assertEqual(
-            weekly_off_numbers,
-            list(range(expected_first_off, 32, 7)),
-        )
+        self.assertEqual(weekly_off_numbers, [])
 
-    def test_unsubmitted_staff_public_holidays_follow_previous_month_result(self):
+    def test_unsubmitted_staff_public_holidays_do_not_follow_previous_month_result(self):
         company = Company.objects.create(name="テスト", code="previous-off-test")
         staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
         PreviousMonthShiftDay.objects.create(
@@ -580,9 +500,9 @@ class ShiftRepositoryAvailabilityTests(DjangoTestCase):
         weekly_off_numbers = [
             row.day.day for row in rows if row.staff_id == staff.id and row.preferred_off
         ]
-        self.assertEqual(weekly_off_numbers, [7, 14, 21, 28])
+        self.assertEqual(weekly_off_numbers, [])
 
-    def test_unsubmitted_staff_rest_pattern_uses_previous_month_result(self):
+    def test_unsubmitted_staff_rest_pattern_does_not_create_auto_public_holidays(self):
         company = Company.objects.create(name="テスト", code="previous-pattern-test")
         staff = Staff.objects.create(company=company, employee_number="S001", name="青木")
         rule_type = ConstraintType.objects.create(
@@ -625,7 +545,7 @@ class ShiftRepositoryAvailabilityTests(DjangoTestCase):
         off_numbers = [
             row.day.day for row in rows if row.staff_id == staff.id and row.preferred_off
         ]
-        self.assertEqual(off_numbers[:3], [1, 4, 7])
+        self.assertEqual(off_numbers, [])
 
     def test_submitted_staff_request_is_not_overwritten_by_auto_holidays(self):
         company = Company.objects.create(name="テスト", code="submitted-availability-test")

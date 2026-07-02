@@ -771,6 +771,7 @@ body {
 
 #shift-table-scroll {
   max-height: calc(100vh - 220px);
+  max-width: 100%;
   overflow: auto
 }
 
@@ -812,19 +813,30 @@ body {
 
 .monthly-table th,
 .monthly-table td {
-  min-width: 64px;
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
   text-align: center;
   padding: 8px 6px;
-  vertical-align: middle
+  vertical-align: middle;
+  overflow: hidden
 }
 
 .monthly-table .sticky-col {
   position: sticky;
   left: 0;
   z-index: 4;
-  min-width: 170px;
+  width: 158px;
+  min-width: 158px;
+  max-width: 158px;
   background: #fff !important;
   box-shadow: 8px 0 14px rgba(30, 28, 52, .08)
+}
+
+.monthly-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 7
 }
 
 .monthly-table thead th {
@@ -840,14 +852,18 @@ body {
 }
 
 .monthly-table .summary-col {
+  width: 62px;
   min-width: 62px;
+  max-width: 62px;
   background: #f7f5ff !important;
   color: var(--primary-dark) !important;
   font-weight: 900
 }
 
 .monthly-table .work-summary-col {
-  min-width: 92px;
+  width: 84px;
+  min-width: 84px;
+  max-width: 84px;
   background: #eef8f0 !important;
   color: #1d7a43 !important
 }
@@ -1156,6 +1172,12 @@ body {
   box-shadow: inset 0 0 0 1px #ddd6fe
 }
 
+.rest-chip.assignment-pending {
+  background: #f1f5f9;
+  color: #64748b;
+  box-shadow: inset 0 0 0 1px #cbd5e1
+}
+
 .work-color-preview {
   display: inline-flex;
   align-items: center;
@@ -1185,14 +1207,15 @@ body {
 
 .draft-shift-select {
   width: 100%;
-  min-width: 112px;
+  min-width: 0;
+  max-width: 68px;
   border: 2px solid rgba(81, 55, 196, .24);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   color: #25213b;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 900;
-  padding: 8px 9px
+  padding: 6px 4px
 }
 
 .assignment-source-mark,

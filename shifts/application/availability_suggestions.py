@@ -50,7 +50,7 @@ def build_suggested_off_day_map(
                 pattern_states,
                 previous_statuses,
             )
-            reason = "過去実績+勤務ルール" if has_previous_data else "勤務ルール"
+            reason = "過去実績+休み候補" if has_previous_data else "休み候補"
             for number in range(1, day_count + 1):
                 is_work_day = pattern_states[pattern_index % len(pattern_states)]
                 if not is_work_day:
@@ -65,7 +65,7 @@ def build_suggested_off_day_map(
     if max_days_candidates:
         max_days = max(1, min(max_days_candidates))
         streak = previous_consecutive_work_count(previous_days)
-        reason = "過去実績+勤務ルール" if streak else "勤務ルール"
+        reason = "過去実績+休み候補" if streak else "休み候補"
         for number in range(1, day_count + 1):
             if streak >= max_days:
                 _add_suggestion_reason(suggestions, number, reason)

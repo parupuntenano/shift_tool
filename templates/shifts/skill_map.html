@@ -65,10 +65,11 @@
                       <option value="">—</option>
                       {% for level in skill_levels %}
                         <option value="{{ level.pk }}"
+                                title="{{ level.meaning }}"
                                 {% if cell.level and cell.level.pk == level.pk %}
                                   selected
                                 {% endif %}
-                        >{{ level.symbol }} {{ level.meaning }}</option>
+                        >{{ level.symbol }}</option>
                       {% endfor %}
                     </select>
                   </td>

@@ -11,7 +11,7 @@
       </p>
       {% if suggested_off_count %}
         <p class="draft-edit-note">
-          過去実績・勤務ルールから休み希望候補を{{ suggested_off_count }}日分見つけました。
+          過去実績から休み希望候補を{{ suggested_off_count }}日分見つけました。
           自動入力は上限内の{{ auto_fill_off_count }}日分まで反映します。
         </p>
       {% endif %}
@@ -35,7 +35,7 @@
         <small>公休希望と有給希望の合計が上限を超えると提出できません。（上限を超えて申請する場合は担当者に直接問い合わせください。）</small>
         {% if rest_constraint_notes %}
           <div class="staff-rest-constraints">
-            <strong>あなたの勤務ルール</strong>
+            <strong>休み希望の参考情報</strong>
             <ul>
               {% for rule in rest_constraint_notes %}
                 <li>

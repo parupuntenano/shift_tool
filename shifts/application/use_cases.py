@@ -29,10 +29,7 @@ class GenerateMonthlyShift:
             self.repository.works_for_generation(company_id),
             self.repository.skills_for_generation(company_id),
             self.repository.availability_for_generation(company_id, month),
-            self.repository.rules_for_generation(
-                company_id,
-                include_default_patterns=True,
-            ),
+            (),
             self.repository.previous_shift_days_for_generation(company_id, month),
         )
         period_id = self.repository.save_generation(company_id, month, result)

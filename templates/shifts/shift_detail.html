@@ -6,21 +6,13 @@
     <div>
       <span class="kicker">MONTHLY SHIFT</span>
       <h1>{{ period.month|date:'Y年n月' }} シフト表</h1>
-      <p>状態：{{ period.get_status_display }} · 制約違反 {{ constraint_warning_count }}件</p>
+      <p>状態：{{ period.get_status_display }} · 警告 {{ visible_warning_count }}件</p>
       {% if can_edit_shift %}
         <p class="draft-edit-note">各セルのプルダウンから編集できます。公開後も急な休みに合わせて更新できます。</p>
       {% endif %}
     </div>
     <div class="actions">
-      {% if period.status != 'published' %}
-        <form method="post" action="{% url 'publish_shift' period.pk %}">
-          {% csrf_token %}
-          <button class="btn btn-primary">
-            <i class="bi bi-send"></i>
-            シフトを公開
-          </button>
-        </form>
-      {% else %}
+      {% if period.status == 'published' %}
         <span class="status published large">公開済み</span>
       {% endif %}
       <a class="btn btn-outline-primary" href="{% url 'download_shift_excel' period.pk %}">
@@ -38,14 +30,14 @@
     </div>
   </header>
   {% if can_edit_shift %}
-    <form method="post" action="{% url 'update_shift_draft' period.pk %}" class="draft-shift-form">
+    <form method="post" action="{% url 'update_shift_draft' period.pk %}" id="draft-shift-form" class="draft-shift-form">
       {% csrf_token %}
       <div class="draft-edit-toolbar panel">
         <div>
           <strong>シフト編集モード</strong>
           <small>変更後は「シフトを保存」を押すまで反映されません。希望休は自動作成時に優先し、手動編集では警告として扱います。</small>
         </div>
-        <button class="btn btn-primary">
+        <button type="submit" form="draft-shift-form" class="btn btn-primary">
           <i class="bi bi-save"></i>
           シフトを保存
         </button>
@@ -153,8 +145,19 @@
                     {% endif %}
                 >
                   {% if can_edit_shift %}
-                    <select name="{{ cell.field_name }}" class="draft-shift-select" aria-label="{{ row.staff.name }} {{ cell.day.date|date:'n/j' }} の勤務">
-                      <option value="">休</option>
+                    <select name="{{ cell.field_name }}" form="draft-shift-form" class="draft-shift-select" aria-label="{{ row.staff.name }} {{ cell.day.date|date:'n/j' }} の勤務">
+                      <option value=""
+                              {% if not cell.assignment and cell.rest_kind == 'assignment-pending' %}selected{% endif %}>
+                        割当待ち
+                      </option>
+                      <option value="public_holiday"
+                              {% if not cell.assignment and cell.rest_kind == 'requested-public-holiday' %}selected{% endif %}>
+                        公休
+                      </option>
+                      <option value="paid_leave"
+                              {% if not cell.assignment and cell.rest_kind == 'paid-leave' %}selected{% endif %}>
+                        有休
+                      </option>
                       {% for work in row.work_options %}
                         <option value="{{ work.id }}"
                                 {% if work.color %}style="background-color: color-mix(in srgb, {{ work.color }} 18%, white); color: #1f2937;"{% endif %}
@@ -269,6 +272,19 @@
   </section>
   <script>
     (() => {
+      const draftForm = document.getElementById('draft-shift-form');
+      const draftSelects = document.querySelectorAll('.draft-shift-select');
+      draftSelects.forEach((select) => {
+        select.dataset.initialValue = select.value;
+      });
+      if (draftForm) {
+        draftForm.addEventListener('submit', () => {
+          draftSelects.forEach((select) => {
+            select.disabled = select.value === select.dataset.initialValue;
+          });
+        });
+      }
+
       const scrollArea = document.getElementById('shift-table-scroll');
       const target = document.getElementById('current-month-start');
       if (!scrollArea || !target) return;
@@ -436,7 +452,7 @@
     <section class="panel warnings">
       <h2>
         <i class="bi bi-exclamation-triangle"></i>
-        制約違反
+        警告
       </h2>
       {% for warning in warnings %}
         <div>

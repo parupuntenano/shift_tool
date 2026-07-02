@@ -30,32 +30,6 @@ urlpatterns = [
     path("manager/skills/", views.skill_manage, name="skill_manage"),
     path("manager/skills/<int:pk>/edit/", views.skill_edit, name="skill_edit"),
     path("manager/skills/<int:pk>/delete/", views.skill_delete, name="skill_delete"),
-    path("manager/constraints/", views.constraint_manage, name="constraint_manage"),
-    path(
-        "manager/constraint-types/",
-        views.constraint_type_manage,
-        name="constraint_type_manage",
-    ),
-    path(
-        "manager/constraint-types/<int:pk>/edit/",
-        views.constraint_type_edit,
-        name="constraint_type_edit",
-    ),
-    path(
-        "manager/constraint-types/<int:pk>/delete/",
-        views.constraint_type_delete,
-        name="constraint_type_delete",
-    ),
-    path(
-        "manager/constraints/<int:pk>/edit/",
-        views.constraint_edit,
-        name="constraint_edit",
-    ),
-    path(
-        "manager/constraints/<int:pk>/delete/",
-        views.constraint_delete,
-        name="constraint_delete",
-    ),
     path("manager/skill-map/", views.skill_map, name="skill_map"),
     path(
         "manager/skill-map/<int:pk>/delete/",
@@ -116,6 +90,5 @@ urlpatterns = [
         views.resolve_leave_request,
         name="resolve_leave_request",
     ),
-    path("manager/shifts/<int:pk>/publish/", views.publish_shift, name="publish_shift"),
     path("manager/shifts/<int:pk>/delete/", views.shift_delete, name="shift_delete"),
 ]

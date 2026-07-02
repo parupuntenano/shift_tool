@@ -112,12 +112,11 @@ class DjangoMasterRepository:
                     staff=staff, work_type=work, defaults={"level": level}
                 )
                 skill_count += 1
-            constraint_count += self._sync_constraints_from_note(company_id, staff)
         return {
             "staff": staff_count,
             "skills": skill_count,
             "accounts": account_count,
-            "constraints": constraint_count,
+            "constraints": 0,
             "levels": level_count,
             "works": work_count,
         }

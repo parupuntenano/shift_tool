@@ -26,6 +26,8 @@ SHORT_STAFFED_WORK_BONUS = 10
 WEEKLY_REST_DAYS = 2
 WEEK_DAYS = 7
 MAX_WORK_DAYS_PER_WEEK = WEEK_DAYS - WEEKLY_REST_DAYS
+DAILY_REST_REQUEST_TARGET = 10
+REST_REQUEST_PRIORITY_WEIGHT = 55
 
 
 @dataclass(frozen=True, order=True)
@@ -38,6 +40,7 @@ class Candidate:
     staff_id: int
     work: Work = field(compare=False)
     member: StaffMember = field(compare=False)
+    relaxed: bool = field(default=False, compare=False)
 
 
 class MonthlyShiftGenerator:
@@ -55,6 +58,7 @@ class MonthlyShiftGenerator:
     ) -> GenerationResult:
         month = month.replace(day=1)
         staff_list = list(staff)
+        availability_list = list(availability)
         work_list = sorted(works, key=lambda item: (item.display_order, item.id))
         skill_map = {(item.staff_id, item.work_id): item for item in skills}
         assignable_work_counts: Counter[int] = Counter(
@@ -63,7 +67,25 @@ class MonthlyShiftGenerator:
         eligible_staff_counts: Counter[int] = Counter(
             item.work_id for item in skills if item.assignable
         )
-        availability_map = {(item.staff_id, item.day): item for item in availability}
+        protected_preferred_off_days = self._protected_preferred_off_days(
+            availability_list
+        )
+        availability_map = {
+            (item.staff_id, item.day): self._effective_availability(
+                item, protected_preferred_off_days
+            )
+            for item in availability_list
+        }
+        rest_request_counts: Counter[int] = Counter(
+            item.staff_id
+            for item in availability_map.values()
+            if item.preferred_off
+        )
+        daily_rest_request_counts: Counter[date] = Counter(
+            item.day
+            for item in availability_map.values()
+            if item.preferred_off
+        )
         rules = list(constraints)
         previous_days = sorted(previous_shift_days, key=lambda item: item.day)
         pattern_anchor_by_staff = self._latest_public_holidays(previous_days)
@@ -83,6 +105,9 @@ class MonthlyShiftGenerator:
                 work.id: max(1, work.required_staff_per_day) for work in work_list
             }
             work_by_id = {work.id: work for work in work_list}
+            self._warn_daily_rest_request_pressure(
+                current, daily_rest_request_counts[current], warnings
+            )
 
             self._assign_daily_coverage(
                 current=current,
@@ -101,6 +126,8 @@ class MonthlyShiftGenerator:
                 assignable_work_counts=assignable_work_counts,
                 eligible_staff_counts=eligible_staff_counts,
                 pattern_anchor_by_staff=pattern_anchor_by_staff,
+                rest_request_counts=rest_request_counts,
+                daily_rest_request_counts=daily_rest_request_counts,
             )
             self._fill_daily_remaining_slots(
                 current=current,
@@ -119,6 +146,8 @@ class MonthlyShiftGenerator:
                 assignable_work_counts=assignable_work_counts,
                 eligible_staff_counts=eligible_staff_counts,
                 pattern_anchor_by_staff=pattern_anchor_by_staff,
+                rest_request_counts=rest_request_counts,
+                daily_rest_request_counts=daily_rest_request_counts,
             )
             self._assign_daily_trainees(
                 current=current,
@@ -164,6 +193,40 @@ class MonthlyShiftGenerator:
             yield month.replace(day=day_number)
 
     @classmethod
+    def _protected_preferred_off_days(cls, availability):
+        by_staff_week = {}
+        for item in availability:
+            if not item.preferred_off:
+                continue
+            key = (item.staff_id, cls._sunday_week_start(item.day))
+            by_staff_week.setdefault(key, []).append(item.day)
+
+        protected = set()
+        for (staff_id, _week_start), days in by_staff_week.items():
+            for day in sorted(days)[:WEEKLY_REST_DAYS]:
+                protected.add((staff_id, day))
+        return protected
+
+    @staticmethod
+    def _effective_availability(item, protected_preferred_off_days):
+        if (
+            not item.preferred_off
+            or (item.staff_id, item.day) in protected_preferred_off_days
+        ):
+            return item
+        return Availability(
+            item.staff_id,
+            item.day,
+            item.available,
+            preferred_off=False,
+            paid_leave=item.paid_leave,
+        )
+
+    @staticmethod
+    def _sunday_week_start(day: date) -> date:
+        return day - timedelta(days=(day.weekday() + 1) % 7)
+
+    @classmethod
     def _assign_daily_coverage(
         cls,
         *,
@@ -183,6 +246,8 @@ class MonthlyShiftGenerator:
         assignable_work_counts,
         eligible_staff_counts,
         pattern_anchor_by_staff,
+        rest_request_counts,
+        daily_rest_request_counts,
     ):
         """各業務にまず最低1人ずつ配置する。"""
 
@@ -190,6 +255,7 @@ class MonthlyShiftGenerator:
 
         while uncovered_work_ids:
             assigned_coverage = False
+            relaxed_work_ids = []
 
             for work_id in cls._sorted_work_ids(
                 uncovered_work_ids,
@@ -222,17 +288,8 @@ class MonthlyShiftGenerator:
                 )
 
                 if not candidates:
-                    missing = remaining_slots.pop(work.id)
-                    uncovered_work_ids.remove(work.id)
-                    warnings.append(
-                        GenerationWarningData(
-                            current,
-                            work.id,
-                            f"{work.name}に最低1名を配置できません。{missing}名不足しています。",
-                        )
-                    )
-                    assigned_coverage = True
-                    break
+                    relaxed_work_ids.append(work.id)
+                    continue
 
                 cls._assign_candidate(
                     candidates[0],
@@ -248,7 +305,70 @@ class MonthlyShiftGenerator:
                 assigned_coverage = True
                 break
 
+            if assigned_coverage:
+                continue
+
+            for work_id in cls._sorted_work_ids(
+                relaxed_work_ids,
+                work_by_id,
+                staff_list,
+                skill_map,
+                availability_map,
+                assigned_by_day,
+                current,
+                assignments,
+                rules,
+                pattern_anchor_by_staff,
+            ):
+                work = work_by_id[work_id]
+                candidates = cls._relaxed_work_candidates(
+                    work,
+                    staff_list,
+                    skill_map,
+                    availability_map,
+                    assigned_by_day,
+                    current,
+                    assignments,
+                    rules,
+                    last_work,
+                    total_assignments,
+                    work_assignments,
+                    assignable_work_counts,
+                    eligible_staff_counts,
+                    pattern_anchor_by_staff,
+                    rest_request_counts,
+                    daily_rest_request_counts,
+                )
+                if not candidates:
+                    continue
+
+                cls._assign_candidate(
+                    candidates[0],
+                    current,
+                    assignments,
+                    assigned_by_day,
+                    total_assignments,
+                    work_assignments,
+                    last_work,
+                    remaining_slots,
+                )
+                cls._warn_relaxed_assignment(current, work, candidates[0], warnings)
+                uncovered_work_ids.remove(work.id)
+                assigned_coverage = True
+                break
+
             if not assigned_coverage:
+                for work_id in list(uncovered_work_ids):
+                    work = work_by_id[work_id]
+                    missing = remaining_slots.pop(work.id)
+                    warnings.append(
+                        GenerationWarningData(
+                            current,
+                            work.id,
+                            f"{work.name}に最低1名を配置できません。{missing}名不足しています。",
+                        )
+                    )
+                uncovered_work_ids.clear()
                 break
 
     @classmethod
@@ -271,6 +391,8 @@ class MonthlyShiftGenerator:
         assignable_work_counts,
         eligible_staff_counts,
         pattern_anchor_by_staff,
+        rest_request_counts,
+        daily_rest_request_counts,
     ):
         """最低1人を確保したあと、各業務の残り必要人数を埋める。"""
 
@@ -309,8 +431,27 @@ class MonthlyShiftGenerator:
                 )
 
                 if not candidates:
-                    exhausted_work_ids.append(work.id)
-                    continue
+                    candidates = cls._relaxed_work_candidates(
+                        work,
+                        staff_list,
+                        skill_map,
+                        availability_map,
+                        assigned_by_day,
+                        current,
+                        assignments,
+                        rules,
+                        last_work,
+                        total_assignments,
+                        work_assignments,
+                        assignable_work_counts,
+                        eligible_staff_counts,
+                        pattern_anchor_by_staff,
+                        rest_request_counts,
+                        daily_rest_request_counts,
+                    )
+                    if not candidates:
+                        exhausted_work_ids.append(work.id)
+                        continue
 
                 candidate = candidates[0]
                 if best_candidate is None or candidate < best_candidate:
@@ -338,6 +479,10 @@ class MonthlyShiftGenerator:
                 last_work,
                 remaining_slots,
             )
+            if best_candidate.relaxed:
+                cls._warn_relaxed_assignment(
+                    current, best_candidate.work, best_candidate, warnings
+                )
 
     @classmethod
     def _sorted_work_ids(
@@ -489,6 +634,157 @@ class MonthlyShiftGenerator:
             )
         candidates.sort()
         return candidates
+
+    @classmethod
+    def _relaxed_work_candidates(
+        cls,
+        work,
+        staff_list,
+        skill_map,
+        availability_map,
+        assigned_by_day,
+        current,
+        assignments,
+        rules,
+        last_work,
+        total_assignments,
+        work_assignments,
+        assignable_work_counts,
+        eligible_staff_counts,
+        pattern_anchor_by_staff,
+        rest_request_counts,
+        daily_rest_request_counts,
+    ):
+        """必要人数を割り込む時だけ、希望休や勤務ルールより配置を優先する。"""
+
+        assigned_same_work = {
+            item.staff_id
+            for item in assignments
+            if item.day == current and item.work_id == work.id
+        }
+        candidates = []
+        for member in staff_list:
+            rating = skill_map.get((member.id, work.id))
+            available = availability_map.get((member.id, current))
+            if (
+                not available
+                or not available.available
+                or not rating
+                or not rating.assignable
+                or rating.trainee
+                or (member.id, current) in assigned_by_day
+            ):
+                continue
+
+            allowed, rule_penalty = cls._evaluate_rules(
+                member.id,
+                work.id,
+                current,
+                assigned_same_work,
+                assignments,
+                rules,
+                pattern_anchor_by_staff,
+            )
+            score = (
+                1000
+                + (0 if allowed else 600)
+                + cls._relaxed_availability_penalty(available)
+                + cls._rest_request_priority_adjustment(
+                    available,
+                    current,
+                    rest_request_counts,
+                    daily_rest_request_counts,
+                )
+                + (
+                    450
+                    if cls._exceeds_consecutive_limit(member, current, assignments)
+                    else 0
+                )
+                + rule_penalty
+                + cls._alternation_bonus(member.id, work.id, assignments, rules)
+                + (SAME_WORK_PENALTY if last_work.get(member.id) == work.id else 0)
+                + (cls._effective_priority(rating) * SKILL_PRIORITY_WEIGHT)
+                + (total_assignments[member.id] * TOTAL_ASSIGNMENT_WEIGHT)
+                + (
+                    work_assignments[(member.id, work.id)]
+                    * SAME_WORK_ASSIGNMENT_WEIGHT
+                )
+                + (assignable_work_counts[member.id] * MULTI_SKILL_PENALTY)
+                - (
+                    max(0, 10 - eligible_staff_counts[work.id])
+                    * SHORT_STAFFED_WORK_BONUS
+                )
+            )
+            candidates.append(
+                Candidate(
+                    score=score,
+                    total_count=total_assignments[member.id],
+                    work_count=work_assignments[(member.id, work.id)],
+                    staff_id=member.id,
+                    work=work,
+                    member=member,
+                    relaxed=True,
+                )
+            )
+        candidates.sort()
+        return candidates
+
+    @staticmethod
+    def _relaxed_availability_penalty(available) -> int:
+        if not available:
+            return 250
+        penalty = 0
+        if not available.available:
+            penalty += 800
+        if available.paid_leave:
+            penalty += 700
+        if available.preferred_off:
+            penalty += 500
+        return penalty
+
+    @staticmethod
+    def _rest_request_priority_adjustment(
+        available,
+        current,
+        rest_request_counts,
+        daily_rest_request_counts,
+    ) -> int:
+        if (
+            not available
+            or not (available.preferred_off or available.paid_leave)
+            or daily_rest_request_counts[current] <= DAILY_REST_REQUEST_TARGET
+        ):
+            return 0
+        return -(rest_request_counts[available.staff_id] * REST_REQUEST_PRIORITY_WEIGHT)
+
+    @staticmethod
+    def _warn_daily_rest_request_pressure(current, request_count, warnings):
+        if request_count <= DAILY_REST_REQUEST_TARGET:
+            return
+        warnings.append(
+            GenerationWarningData(
+                current,
+                None,
+                (
+                    f"休み希望が{request_count}名あります。"
+                    f"1日の休み目安{DAILY_REST_REQUEST_TARGET}名を超えるため、"
+                    "希望数が少ないスタッフを優先して休みに残します。"
+                ),
+            )
+        )
+
+    @staticmethod
+    def _warn_relaxed_assignment(current, work, candidate, warnings):
+        warnings.append(
+            GenerationWarningData(
+                current,
+                work.id,
+                (
+                    f"{work.name}の必要人数を確保するため、"
+                    f"{candidate.member.name}を制約緩和で配置しました。"
+                ),
+            )
+        )
 
     @classmethod
     def _assign_daily_trainees(

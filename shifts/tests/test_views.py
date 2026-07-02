@@ -278,7 +278,7 @@ class ManagerCrudTests(TestCase):
         self.assertEqual(works["A2"].fill.fgColor.rgb[-6:], "2563EB")
         self.assertEqual(
             [previous.cell(row=1, column=index).value for index in range(1, 5)],
-            ["社員番号", "氏名", "2026/6/24", "2026/6/25"],
+            ["社員番号", "氏名", "6/20", "6/21"],
         )
         self.assertEqual(previous["A2"].value, "S001")
         self.assertEqual(previous["C2"].value, "業務A")
@@ -306,16 +306,16 @@ class ManagerCrudTests(TestCase):
         self.assertNotIn("業務スキル記入例", workbook.sheetnames)
         self.assertEqual(sheet.max_row, 31)
         self.assertEqual(
-            [sheet.cell(row=1, column=index).value for index in range(1, 11)],
-            ["社員番号", "氏名", "公休数", "備考", "受付", "ロール", "エーカス", "検品", "出荷", "仕分け"],
+            [sheet.cell(row=1, column=index).value for index in range(1, 13)],
+            ["社員番号", "氏名", "公休数", "備考", "A", "B", "C", "D", "E", "F", "G", "H"],
         )
         self.assertEqual(sheet["A2"].value, "S001")
         self.assertEqual(sheet["C2"].value, 8)
-        self.assertEqual(sheet["D2"].value, "ベース2勤1休;可能な限り4勤不可")
+        self.assertEqual(sheet["D2"].value, "単休不可")
         self.assertEqual(sheet["E2"].value, "◎")
         self.assertEqual(
             [sheet.cell(row=row, column=3).value for row in range(2, 32)],
-            [8, 9, 10, 11] * 7 + [8, 9],
+            [8, 9] * 15,
         )
         self.assertLessEqual(
             max(
@@ -328,34 +328,34 @@ class ManagerCrudTests(TestCase):
                 )
                 for row in range(2, 32)
             ),
-            2,
+            4,
         )
-        self.assertEqual(works.max_row, 7)
-        self.assertEqual(works["A2"].value, "受付")
+        self.assertEqual(works.max_row, 9)
+        self.assertEqual(works["A2"].value, "A")
         self.assertEqual(
             [works.cell(row=1, column=index).value for index in range(1, 4)],
             ["業務名", "必要人数", "有効"],
         )
-        self.assertEqual(works["B2"].value, 3)
+        self.assertEqual(works["B2"].value, 4)
         self.assertEqual(
-            [works.cell(row=row, column=2).value for row in range(2, 8)],
-            [3, 3, 3, 3, 3, 3],
+            [works.cell(row=row, column=2).value for row in range(2, 10)],
+            [4, 3, 3, 2, 2, 2, 2, 1],
         )
         self.assertEqual(works["C2"].value, "有効")
         self.assertEqual(works["A2"].fill.fgColor.rgb[-6:], "2563EB")
         self.assertEqual(levels["A2"].value, "◎")
         self.assertEqual(previous["A2"].value, "S001")
-        self.assertEqual(previous["C2"].value, "受付")
+        self.assertEqual(previous["C2"].value, "A")
         self.assertNotIn(
-            "受付",
+            "A",
             [previous.cell(row=4, column=column).value for column in range(3, 10)],
         )
         self.assertNotIn(
-            "ロール",
+            "B",
             [previous.cell(row=7, column=column).value for column in range(3, 10)],
         )
-        self.assertEqual(previous["H8"].value, "ロール")
-        self.assertEqual(previous["I8"].value, "エーカス")
+        self.assertEqual(previous["L8"].value, "G")
+        self.assertEqual(previous["M8"].value, "H")
 
     def test_can_download_csv_template_and_sample(self):
         template_response = self.client.get(reverse("download_csv_template"))
@@ -387,10 +387,10 @@ class ManagerCrudTests(TestCase):
             template_rows[0],
             ["社員番号", "氏名", "公休数", "備考", "業務A", "業務B", "業務C"],
         )
-        self.assertEqual(sample_rows[0][4:], ["受付", "ロール", "エーカス", "検品", "出荷", "仕分け"])
+        self.assertEqual(sample_rows[0][4:], ["A", "B", "C", "D", "E", "F", "G", "H"])
         self.assertEqual(sample_rows[1][0], "S001")
 
-    def test_previous_shift_import_reads_only_last_seven_days(self):
+    def test_previous_shift_import_reads_saturday_week_context_days(self):
         from shifts.presentation.views import _import_previous_shift_days
 
         Staff.objects.create(
@@ -404,14 +404,18 @@ class ManagerCrudTests(TestCase):
             [
                 "社員番号",
                 "氏名",
-                "2026/6/23",
-                "2026/6/24",
-                "2026/6/25",
-                "2026/6/26",
-                "2026/6/27",
-                "2026/6/28",
-                "2026/6/29",
-                "2026/6/30",
+                "2026/6/19",
+                "6/20",
+                "6/21",
+                "6/22",
+                "6/23",
+                "6/24",
+                "6/25",
+                "6/26",
+                "6/27",
+                "6/28",
+                "6/29",
+                "6/30",
             ]
         )
         sheet.append(
@@ -419,6 +423,10 @@ class ManagerCrudTests(TestCase):
                 "S001",
                 "青木 太郎",
                 "受付",
+                "受付",
+                "公休",
+                "受付",
+                "有給",
                 "受付",
                 "公休",
                 "有給",
@@ -436,17 +444,45 @@ class ManagerCrudTests(TestCase):
             self.company, date(2026, 6, 1), file_obj
         )
 
-        self.assertEqual(result["days"], 7)
+        self.assertEqual(result["days"], 11)
         self.assertFalse(
-            PreviousMonthShiftDay.objects.filter(day=date(2026, 6, 23)).exists()
+            PreviousMonthShiftDay.objects.filter(day=date(2026, 6, 19)).exists()
         )
         self.assertEqual(
             PreviousMonthShiftDay.objects.filter(
                 company=self.company,
-                day__range=(date(2026, 6, 24), date(2026, 6, 30)),
+                day__range=(date(2026, 6, 20), date(2026, 6, 30)),
             ).count(),
-            7,
+            11,
         )
+
+    def test_previous_shift_import_accepts_inactive_work_name(self):
+        from shifts.presentation.views import _import_previous_shift_days
+
+        staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S001",
+            name="青木 太郎",
+        )
+        work = WorkType.objects.create(
+            company=self.company,
+            name="前月だけの業務",
+            active=False,
+        )
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "先月シフト実績"
+        sheet.append(["社員番号", "氏名", "6/30"])
+        sheet.append(["S001", "青木 太郎", "前月だけの業務"])
+        file_obj = BytesIO()
+        file_obj.name = "previous.xlsx"
+        workbook.save(file_obj)
+
+        _import_previous_shift_days(self.company, date(2026, 6, 1), file_obj)
+
+        item = PreviousMonthShiftDay.objects.get(staff=staff, day=date(2026, 6, 30))
+        self.assertEqual(item.status, PreviousMonthShiftDay.Status.WORK)
+        self.assertEqual(item.work_type, work)
 
     def test_previous_shift_month_form_accepts_browser_month_value(self):
         from shifts.presentation.forms import PreviousShiftImportForm
@@ -462,6 +498,14 @@ class ManagerCrudTests(TestCase):
 
         self.assertEqual(
             _previous_shift_day_from_header("2026年6月30日(火)", month),
+            date(2026, 6, 30),
+        )
+        self.assertEqual(
+            _previous_shift_day_from_header("6/30", month),
+            date(2026, 6, 30),
+        )
+        self.assertEqual(
+            _previous_shift_day_from_header("6月30日", month),
             date(2026, 6, 30),
         )
         self.assertEqual(
@@ -517,7 +561,7 @@ class ManagerCrudTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "先月シフト実績確認")
-        self.assertContains(response, "2026年6月 / 6/24〜6/30")
+        self.assertContains(response, "2026年6月 / 6/20〜6/30")
         self.assertContains(response, "青木 太郎")
         self.assertContains(response, "S001")
         self.assertContains(response, "受付")
@@ -558,6 +602,38 @@ class ManagerCrudTests(TestCase):
         self.assertContains(response, "作成済みシフト表")
         self.assertContains(response, "ロール")
         self.assertNotContains(response, "受付")
+
+    def test_previous_shift_list_default_prefers_latest_imported_month(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S001", name="青木 太郎"
+        )
+        generated_work = WorkType.objects.create(company=self.company, name="当月業務")
+        imported_work = WorkType.objects.create(company=self.company, name="前月業務")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=generated_work,
+        )
+        PreviousMonthShiftDay.objects.create(
+            company=self.company,
+            staff=staff,
+            day=date(2026, 6, 30),
+            status=PreviousMonthShiftDay.Status.WORK,
+            work_type=imported_work,
+            raw_value="前月業務",
+        )
+
+        response = self.client.get(reverse("previous_shift_list"))
+
+        self.assertEqual(response.context["month"], date(2026, 6, 1))
+        self.assertContains(response, "前月業務")
+        self.assertNotContains(response, "当月業務")
 
     def test_draft_shift_detail_shows_edit_controls_and_support(self):
         staff = Staff.objects.create(
@@ -656,7 +732,7 @@ class ManagerCrudTests(TestCase):
 
         response = self.client.get(reverse("shift_detail", args=[period.pk]))
 
-        self.assertEqual(len(response.context["previous_days"]), 7)
+        self.assertEqual(len(response.context["previous_days"]), 11)
         self.assertEqual(
             response.context["rows"][0]["previous_cells"][-1]["label"],
             "前月業務",
@@ -665,6 +741,45 @@ class ManagerCrudTests(TestCase):
         self.assertContains(response, "readonly-previous-cell")
         self.assertContains(response, 'id="current-month-start"')
         self.assertNotContains(response, f'name="assignment_{staff.pk}_20260630"')
+
+    def test_shift_detail_shows_inactive_previous_work_reference(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        previous_work = WorkType.objects.create(
+            company=self.company, name="前月だけの業務", active=False
+        )
+        current_work = WorkType.objects.create(company=self.company, name="当月業務")
+        previous_period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 6, 1),
+            status=ShiftPeriod.Status.PUBLISHED,
+        )
+        ShiftAssignment.objects.create(
+            period=previous_period,
+            staff=staff,
+            day=date(2026, 6, 30),
+            work_type=previous_work,
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=current_work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        self.assertEqual(
+            response.context["rows"][0]["previous_cells"][-1]["label"],
+            "前月だけの業務",
+        )
+        self.assertContains(response, "前月だけの業務")
 
     def test_shift_detail_has_download_buttons(self):
         period = ShiftPeriod.objects.create(
@@ -854,23 +969,24 @@ class ManagerCrudTests(TestCase):
         self.assertContains(response, "警告")
         self.assertContains(response, "設定8")
         self.assertContains(response, "公休数の超過・不足")
-        self.assertContains(response, "29/8")
-        self.assertEqual(response.context["rows"][0]["public_holiday_count"], 29)
+        self.assertContains(response, "0/8")
+        self.assertEqual(response.context["rows"][0]["public_holiday_count"], 0)
         self.assertEqual(response.context["rows"][0]["public_holiday_target"], 8)
-        self.assertEqual(response.context["rows"][0]["public_holiday_status"], "over")
+        self.assertEqual(response.context["rows"][0]["public_holiday_status"], "under")
         self.assertEqual(
-            response.context["edit_support"]["public_holiday_rows"][0]["actual"], 29
+            response.context["edit_support"]["public_holiday_rows"][0]["actual"], 0
         )
         self.assertEqual(
             response.context["edit_support"]["public_holiday_rows"][0]["target"], 8
         )
         self.assertEqual(
-            response.context["edit_support"]["public_holiday_rows"][0]["difference"], 21
+            response.context["edit_support"]["public_holiday_rows"][0]["difference"], -8
         )
         self.assertTrue(response.context["edit_support"]["public_holiday_has_issues"])
         self.assertEqual(response.context["rows"][0]["paid_leave_count"], 1)
-        self.assertEqual(response.context["rows"][0]["expected_total"], 31)
-        self.assertEqual(response.context["rows"][0]["expected_total_status"], "ok")
+        self.assertEqual(response.context["rows"][0]["assignment_pending_count"], 29)
+        self.assertEqual(response.context["rows"][0]["expected_total"], 2)
+        self.assertEqual(response.context["rows"][0]["expected_total_status"], "under")
 
     def test_shift_detail_shortage_count_ignores_trainee_assignment(self):
         instructor = Staff.objects.create(
@@ -933,7 +1049,7 @@ class ManagerCrudTests(TestCase):
         self.assertEqual(shortage["required"], 2)
         self.assertEqual(shortage["shortage"], 1)
 
-    def test_shift_detail_distinguishes_requested_and_inserted_public_holidays(self):
+    def test_shift_detail_distinguishes_requested_holidays_and_assignment_pending(self):
         staff = Staff.objects.create(
             company=self.company,
             employee_number="S100",
@@ -967,10 +1083,57 @@ class ManagerCrudTests(TestCase):
         cells = response.context["rows"][0]["cells"]
         self.assertEqual(cells[1]["rest_kind"], "requested-public-holiday")
         self.assertEqual(cells[1]["rest_label"], "申請公休")
-        self.assertEqual(cells[2]["rest_kind"], "inserted-public-holiday")
-        self.assertEqual(cells[2]["rest_label"], "公休")
+        self.assertEqual(cells[2]["rest_kind"], "assignment-pending")
+        self.assertEqual(cells[2]["rest_label"], "割当待ち")
         self.assertContains(response, "requested-public-holiday")
-        self.assertContains(response, "inserted-public-holiday")
+        self.assertContains(response, "assignment-pending")
+
+    def test_shift_detail_limits_preferred_holidays_to_two_per_week_excluding_paid_leave(self):
+        staff = Staff.objects.create(
+            company=self.company,
+            employee_number="S100",
+            name="青木 太郎",
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        submission = AvailabilitySubmission.objects.create(
+            staff=staff,
+            month=date(2026, 7, 1),
+            status=AvailabilitySubmission.Status.SUBMITTED,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 1),
+            preferred_off=True,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 2),
+            paid_leave=True,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 3),
+            preferred_off=True,
+        )
+        AvailabilityDay.objects.create(
+            submission=submission,
+            day=date(2026, 7, 4),
+            preferred_off=True,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+
+        cells = response.context["rows"][0]["cells"]
+        self.assertEqual(cells[0]["rest_kind"], "requested-public-holiday")
+        self.assertEqual(cells[1]["rest_kind"], "paid-leave")
+        self.assertEqual(cells[2]["rest_kind"], "requested-public-holiday")
+        self.assertEqual(cells[3]["rest_kind"], "assignment-pending")
+        self.assertEqual(response.context["rows"][0]["public_holiday_count"], 2)
+        self.assertEqual(response.context["rows"][0]["paid_leave_count"], 1)
 
     def test_can_update_draft_shift_assignment(self):
         staff = Staff.objects.create(
@@ -999,6 +1162,57 @@ class ManagerCrudTests(TestCase):
         assignment.refresh_from_db()
         self.assertEqual(assignment.work_type, new_work)
         self.assertTrue(assignment.manually_edited)
+
+    def test_shift_detail_save_controls_are_bound_to_draft_form(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.get(reverse("shift_detail", args=[period.pk]))
+        html = response.content.decode()
+
+        self.assertIn('id="draft-shift-form"', html)
+        self.assertIn('type="submit" form="draft-shift-form"', html)
+        self.assertIn('name="assignment_', html)
+        self.assertIn('form="draft-shift-form" class="draft-shift-select"', html)
+        self.assertIn('select.dataset.initialValue = select.value;', html)
+        self.assertIn('select.disabled = select.value === select.dataset.initialValue;', html)
+
+    def test_can_mark_unassigned_day_as_public_holiday(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": "public_holiday"},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        day = AvailabilityDay.objects.get(
+            submission__staff=staff,
+            submission__month=date(2026, 7, 1),
+            day=date(2026, 7, 1),
+        )
+        self.assertTrue(day.preferred_off)
+        self.assertFalse(day.paid_leave)
 
     def test_unchanged_shift_save_keeps_assignment_auto(self):
         staff = Staff.objects.create(
@@ -1094,7 +1308,7 @@ class ManagerCrudTests(TestCase):
             ).exists()
         )
 
-    def test_update_shift_draft_warns_when_constraint_is_violated(self):
+    def test_update_shift_draft_ignores_constraints(self):
         staff = Staff.objects.create(
             company=self.company, employee_number="S100", name="青木 太郎"
         )
@@ -1126,18 +1340,18 @@ class ManagerCrudTests(TestCase):
 
         self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
         period.refresh_from_db()
-        self.assertEqual(period.warning_count, 1)
-        warning = period.warnings.get()
-        self.assertEqual(warning.day, date(2026, 7, 1))
-        self.assertEqual(warning.work_type, work)
-        self.assertIn("制約違反", warning.message)
-        self.assertIn("スタッフ：青木 太郎", warning.message)
-        self.assertIn("業務：受付", warning.message)
-        self.assertIn("ルール：青木受付禁止", warning.message)
-        self.assertIn("対象業務：受付", warning.message)
-        self.assertIn("禁止業務", warning.message)
+        self.assertEqual(period.warning_count, 0)
+        self.assertFalse(period.warnings.exists())
+        self.assertTrue(
+            ShiftAssignment.objects.filter(
+                period=period,
+                staff=staff,
+                day=date(2026, 7, 1),
+                work_type=work,
+            ).exists()
+        )
 
-    def test_constraint_warning_uses_previous_shift_for_work_rest_pattern(self):
+    def test_update_shift_draft_does_not_warn_for_work_rest_pattern(self):
         staff = Staff.objects.create(
             company=self.company, employee_number="S100", name="青木 太郎"
         )
@@ -1184,12 +1398,9 @@ class ManagerCrudTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
-        warning = period.warnings.get()
-        self.assertEqual(warning.day, date(2026, 7, 1))
-        self.assertEqual(warning.work_type, work)
-        self.assertIn("勤務・休みパターン", warning.message)
+        self.assertFalse(period.warnings.exists())
 
-    def test_constraint_warning_uses_previous_shift_for_no_single_rest(self):
+    def test_update_shift_draft_does_not_warn_for_no_single_rest(self):
         staff = Staff.objects.create(
             company=self.company, employee_number="S100", name="青木 太郎"
         )
@@ -1227,12 +1438,9 @@ class ManagerCrudTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
-        warning = period.warnings.get()
-        self.assertEqual(warning.day, date(2026, 7, 1))
-        self.assertIsNone(warning.work_type)
-        self.assertIn("単休", warning.message)
+        self.assertFalse(period.warnings.exists())
 
-    def test_shift_detail_warning_section_shows_only_constraint_violations(self):
+    def test_shift_detail_warning_section_hides_constraint_violations(self):
         work = WorkType.objects.create(company=self.company, name="受付")
         period = ShiftPeriod.objects.create(
             company=self.company,
@@ -1255,12 +1463,12 @@ class ManagerCrudTests(TestCase):
 
         response = self.client.get(reverse("shift_detail", args=[period.pk]))
 
-        self.assertEqual(response.context["constraint_warning_count"], 1)
-        self.assertContains(response, "制約違反：青木禁止業務に入っています。")
-        self.assertContains(response, "制約違反 1件")
-        self.assertNotContains(response, "受付の必要人数が不足しています。")
+        self.assertEqual(response.context["visible_warning_count"], 1)
+        self.assertNotContains(response, "制約違反：青木禁止業務に入っています。")
+        self.assertContains(response, "警告 1件")
+        self.assertContains(response, "受付の必要人数が不足しています。")
 
-    def test_generate_shift_warns_when_soft_constraint_is_violated(self):
+    def test_generate_shift_ignores_soft_constraint(self):
         staff = Staff.objects.create(
             company=self.company, employee_number="S100", name="青木 太郎"
         )
@@ -1306,9 +1514,8 @@ class ManagerCrudTests(TestCase):
 
         period = ShiftPeriod.objects.get(company=self.company, month=date(2026, 7, 1))
         self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
-        self.assertTrue(
-            period.warnings.filter(message__contains="制約違反").exists()
-        )
+        self.assertFalse(period.warnings.filter(message__contains="制約違反").exists())
+        self.assertTrue(period.assignments.filter(staff=staff, work_type=work).exists())
 
     def test_draft_edit_can_assign_on_requested_public_or_paid_leave(self):
         staff = Staff.objects.create(
@@ -1440,6 +1647,45 @@ class ManagerCrudTests(TestCase):
                 period=period,
                 staff=staff,
                 day=date(2026, 7, 1),
+            ).exists()
+        )
+
+    def test_shift_edit_dropdown_can_change_assignment_to_paid_leave(self):
+        staff = Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        work = WorkType.objects.create(company=self.company, name="受付")
+        period = ShiftPeriod.objects.create(
+            company=self.company,
+            month=date(2026, 7, 1),
+            status=ShiftPeriod.Status.DRAFT,
+        )
+        ShiftAssignment.objects.create(
+            period=period,
+            staff=staff,
+            day=date(2026, 7, 1),
+            work_type=work,
+        )
+
+        response = self.client.post(
+            reverse("update_shift_draft", args=[period.pk]),
+            {f"assignment_{staff.pk}_20260701": "paid_leave"},
+        )
+
+        self.assertRedirects(response, reverse("shift_detail", args=[period.pk]))
+        self.assertFalse(
+            ShiftAssignment.objects.filter(
+                period=period,
+                staff=staff,
+                day=date(2026, 7, 1),
+            ).exists()
+        )
+        self.assertTrue(
+            AvailabilityDay.objects.filter(
+                submission__staff=staff,
+                submission__month=date(2026, 7, 1),
+                day=date(2026, 7, 1),
+                paid_leave=True,
             ).exists()
         )
 
@@ -1844,13 +2090,11 @@ class ManagerCrudTests(TestCase):
         self.assertIn("社員 花子", candidate_names)
         self.assertNotIn("不可 社員", candidate_names)
 
-    def test_can_delete_constraint_after_confirmation(self):
-        rule = IndividualConstraint.objects.create(
-            company=self.company, name="テスト条件", kind="custom"
-        )
-        response = self.client.post(reverse("constraint_delete", args=[rule.pk]))
-        self.assertRedirects(response, reverse("constraint_manage"))
-        self.assertFalse(IndividualConstraint.objects.filter(pk=rule.pk).exists())
+    def test_constraint_routes_are_disabled(self):
+        with self.assertRaises(NoReverseMatch):
+            reverse("constraint_manage")
+        with self.assertRaises(NoReverseMatch):
+            reverse("constraint_delete", args=[1])
 
     def test_used_skill_level_is_protected_from_delete(self):
         staff = Staff.objects.create(
@@ -1881,6 +2125,20 @@ class ManagerCrudTests(TestCase):
         self.assertNotContains(response, "選択した項目を削除")
         self.assertNotContains(response, 'class="skill-checkbox"')
         self.assertContains(response, "検索対象業務")
+
+    def test_skill_map_select_options_show_only_symbols(self):
+        Staff.objects.create(
+            company=self.company, employee_number="S100", name="青木 太郎"
+        )
+        WorkType.objects.create(company=self.company, name="受付")
+        SkillLevel.objects.create(
+            company=self.company, symbol="◎", meaning="リーダー"
+        )
+
+        response = self.client.get(reverse("skill_map"))
+
+        self.assertContains(response, ">◎</option>")
+        self.assertNotContains(response, "◎ リーダー")
 
     def test_skill_map_staff_search_filters_edit_matrix(self):
         target = Staff.objects.create(
@@ -1998,63 +2256,3 @@ class ManagerCrudTests(TestCase):
         self.assertFalse(StaffSkill.objects.filter(pk=own.pk).exists())
         self.assertTrue(StaffSkill.objects.filter(pk=other.pk).exists())
 
-    def test_can_create_work_alternation_constraint(self):
-        staff = Staff.objects.create(
-            company=self.company, employee_number="S100", name="対象"
-        )
-        work_a = WorkType.objects.create(company=self.company, name="コンテナ")
-        work_b = WorkType.objects.create(company=self.company, name="エーカス")
-        rule_type = ConstraintType.objects.create(
-            company=self.company,
-            name="交互配置",
-            operator=ConstraintType.Operator.WORK_ALTERNATION,
-        )
-        response = self.client.post(
-            reverse("constraint_manage"),
-            {
-                "rule_type": rule_type.pk,
-                "staff": staff.pk,
-                "name": "コンテナとエーカスを交互にアサイン",
-                "work_type_a": work_a.pk,
-                "work_type_b": work_b.pk,
-                "strength": "10",
-                "active": "on",
-            },
-        )
-        self.assertRedirects(response, reverse("constraint_manage"))
-        constraint = IndividualConstraint.objects.get(
-            name="コンテナとエーカスを交互にアサイン"
-        )
-        self.assertEqual(
-            (constraint.work_type_a, constraint.work_type_b), (work_a, work_b)
-        )
-        self.assertEqual(constraint.strength, 10)
-        self.assertTrue(constraint.is_hard)
-
-    def test_can_search_constraints_by_staff_name_or_employee_number(self):
-        staff_a = Staff.objects.create(
-            company=self.company, employee_number="S100", name="青木"
-        )
-        staff_b = Staff.objects.create(
-            company=self.company, employee_number="S200", name="田中"
-        )
-        IndividualConstraint.objects.create(
-            company=self.company,
-            staff=staff_a,
-            name="青木の条件",
-            kind="custom",
-        )
-        IndividualConstraint.objects.create(
-            company=self.company,
-            staff=staff_b,
-            name="田中の条件",
-            kind="custom",
-        )
-
-        name_response = self.client.get(reverse("constraint_manage"), {"q": "青木"})
-        number_response = self.client.get(reverse("constraint_manage"), {"q": "S200"})
-
-        self.assertContains(name_response, "青木の条件")
-        self.assertNotContains(name_response, "田中の条件")
-        self.assertContains(number_response, "田中の条件")
-        self.assertNotContains(number_response, "青木の条件")

@@ -117,9 +117,6 @@ class DjangoShiftRepository:
                 "id", flat=True
             )
         )
-        rules = self.rules_for_generation(company_id)
-        previous_days = self.previous_shift_days_for_generation(company_id, month)
-
         result = []
         for staff_id in staff_ids:
             if staff_id in submitted_staff_ids:
@@ -132,19 +129,12 @@ class DjangoShiftRepository:
                     )
                 continue
 
-            auto_off_days = self._auto_public_holidays_for_unsubmitted_staff(
-                staff_id,
-                month,
-                rules,
-                previous_days,
-            )
             for day in self._days_in_month(month):
                 result.append(
                     Availability(
                         staff_id,
                         day,
                         True,
-                        preferred_off=day in auto_off_days,
                     )
                 )
         return result
@@ -314,7 +304,9 @@ class DjangoShiftRepository:
     def previous_shift_days_for_generation(
         self, company_id: int, month: date
     ) -> list[PreviousShiftDay]:
-        previous_month = self._add_months(month.replace(day=1), -1)
+        month = month.replace(day=1)
+        previous_month = self._add_months(month, -1)
+        first_day, last_day = self._previous_shift_context_range(month)
         period = (
             ShiftPeriod.objects.filter(
                 company_id=company_id,
@@ -325,12 +317,16 @@ class DjangoShiftRepository:
             .first()
         )
         if period:
-            return self._previous_shift_days_from_period(company_id, period)
+            return self._previous_shift_days_from_period(
+                company_id,
+                period,
+                first_day,
+                last_day,
+            )
 
         rows = PreviousMonthShiftDay.objects.filter(
             company_id=company_id,
-            day__year=previous_month.year,
-            day__month=previous_month.month,
+            day__range=(first_day, last_day),
         )
         return [
             PreviousShiftDay(
@@ -343,11 +339,12 @@ class DjangoShiftRepository:
         ]
 
     def _previous_shift_days_from_period(
-        self, company_id: int, period: ShiftPeriod
+        self,
+        company_id: int,
+        period: ShiftPeriod,
+        first_day: date,
+        last_day: date,
     ) -> list[PreviousShiftDay]:
-        last_day_number = calendar.monthrange(period.month.year, period.month.month)[1]
-        first_day = period.month.replace(day=last_day_number - 6)
-        last_day = period.month.replace(day=last_day_number)
         staff_ids = list(
             Staff.objects.filter(company_id=company_id, active=True).values_list(
                 "id", flat=True
@@ -372,8 +369,8 @@ class DjangoShiftRepository:
         }
         result = []
         for staff_id in staff_ids:
-            for day_number in range(first_day.day, last_day.day + 1):
-                day = period.month.replace(day=day_number)
+            day = first_day
+            while day <= last_day:
                 work_id = assignment_map.get((staff_id, day))
                 if work_id:
                     result.append(
@@ -400,7 +397,15 @@ class DjangoShiftRepository:
                             PreviousMonthShiftDay.Status.PUBLIC_HOLIDAY,
                         )
                     )
+                day += timedelta(days=1)
         return result
+
+    @staticmethod
+    def _previous_shift_context_range(month: date) -> tuple[date, date]:
+        month = month.replace(day=1)
+        days_since_saturday = (month.weekday() - 5) % 7
+        current_week_start = month - timedelta(days=days_since_saturday)
+        return current_week_start - timedelta(days=7), month - timedelta(days=1)
 
     @staticmethod
     def _add_months(month: date, offset: int) -> date:
