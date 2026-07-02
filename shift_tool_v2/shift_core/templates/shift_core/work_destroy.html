@@ -1,0 +1,24 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}業務を削除{% endblock %}
+
+{% block content %}
+  <section class="panel danger-panel">
+    <span class="kicker">DELETE</span>
+    <h1>業務を削除</h1>
+    <p>
+      業務「{{ work.name }}」を削除します。
+      この業務に紐づくスキル {{ skill_count }}件は削除されます。
+    </p>
+    <p>
+      作成済みシフト {{ assignment_count }}件、前月実績 {{ previous_count }}件で使われている場合、
+      業務名は空欄扱いになります。
+    </p>
+    <p class="danger-text">この操作は取り消せません。不要な業務だけ削除してください。</p>
+    <form method="post" class="inline-form">
+      {% csrf_token %}
+      <button class="primary danger-submit" type="submit">削除する</button>
+      <a class="button" href="{% url 'work_manage' %}">キャンセル</a>
+    </form>
+  </section>
+{% endblock %}

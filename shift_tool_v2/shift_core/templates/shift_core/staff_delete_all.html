@@ -1,0 +1,20 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}スタッフ情報を全削除{% endblock %}
+
+{% block content %}
+  <section class="panel danger-panel">
+    <span class="kicker">DELETE</span>
+    <h1>スタッフ情報を全削除</h1>
+    <p>
+      登録スタッフ {{ staff_count }}人を削除します。
+      作成済みシフト {{ period_count }}件も、スタッフに紐づくデータとして一緒に削除します。
+    </p>
+    <p class="danger-text">この操作は取り消せません。サンプルを入れ直す前など、初期化したい時だけ実行してください。</p>
+    <form method="post" class="inline-form">
+      {% csrf_token %}
+      <button class="primary danger-submit" type="submit">全削除する</button>
+      <a class="button" href="{% url 'staff_manage' %}">キャンセル</a>
+    </form>
+  </section>
+{% endblock %}

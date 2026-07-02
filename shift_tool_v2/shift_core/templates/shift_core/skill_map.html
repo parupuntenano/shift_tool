@@ -1,0 +1,117 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}スキル管理{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">SKILL MAP</span>
+      <h1>スタッフスキル</h1>
+      <p>業務ごとの対応レベルを一覧のプルダウンから直接変更できます。</p>
+    </div>
+    <div class="page-actions">
+      <a class="button" href="{% url 'import_data' %}">Excel取込</a>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>スキルマップ一括編集</h2>
+        <p>検索しても画面はリセットせず、表示だけ絞り込みます。</p>
+      </div>
+      <span class="result-count" id="matrix-result-count">{{ staff_rows|length }}名</span>
+    </div>
+
+    <form method="get" class="skill-search" id="matrix-search-form">
+      <div class="search-keyword">
+        <input type="search" name="q" value="{{ query }}" placeholder="社員番号・氏名で検索">
+      </div>
+      <button class="primary" type="submit">検索</button>
+      <a class="button" href="{% url 'skill_map' %}">クリア</a>
+    </form>
+
+    <form method="post" class="skill-map-edit">
+      {% csrf_token %}
+      <div class="skill-map-note">空欄を選ぶと、その業務のスキル設定は未設定に戻ります。</div>
+      <div class="table-responsive skill-map-scroll">
+        <table class="table skill-table">
+          <thead>
+            <tr>
+              <th class="sticky-col">スタッフ</th>
+              {% for work in works %}
+                <th>{{ work.name }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in staff_rows %}
+              <tr data-matrix-row data-search="{{ row.staff.employee_number }} {{ row.staff.name }}">
+                <td class="sticky-col staff-name-sticky">
+                  <span class="staff-inline-name">
+                    <small>{{ row.staff.employee_number }}</small>
+                    <strong>{{ row.staff.name }}</strong>
+                  </span>
+                </td>
+                {% for cell in row.cells %}
+                  <td>
+                    <select class="skill-select" name="{{ cell.field_name }}" aria-label="{{ row.staff.name }} {{ cell.work.name }}のスキル">
+                      <option value="">—</option>
+                      {% for level in skill_levels %}
+                        <option value="{{ level.pk }}"
+                                title="{{ level.label }}"
+                                {% if cell.level and cell.level.pk == level.pk %}selected{% endif %}>
+                          {{ level.symbol }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                {% endfor %}
+              </tr>
+            {% empty %}
+              <tr><td colspan="99" class="empty">スタッフまたは業務が未登録です。</td></tr>
+            {% endfor %}
+            <tr id="matrix-empty-row" hidden>
+              <td colspan="99" class="empty">条件に一致するスタッフはいません。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="skill-save-bar">
+        <span>変更したら最後に保存してください。</span>
+        <button class="primary" type="submit">スキルマップを保存</button>
+      </div>
+    </form>
+  </section>
+
+  <script>
+    (() => {
+      const normalize = value => (value || '').trim().toLowerCase();
+      const form = document.getElementById('matrix-search-form');
+      const input = form?.querySelector('[name="q"]');
+      const rows = [...document.querySelectorAll('[data-matrix-row]')];
+      const count = document.getElementById('matrix-result-count');
+      const empty = document.getElementById('matrix-empty-row');
+      if (!form || !input || !count || !empty) return;
+
+      const filter = () => {
+        const keyword = normalize(input.value);
+        let visible = 0;
+        rows.forEach(row => {
+          const matched = !keyword || normalize(row.dataset.search).includes(keyword);
+          row.hidden = !matched;
+          if (matched) visible += 1;
+        });
+        count.textContent = `${visible}名`;
+        empty.hidden = visible !== 0;
+      };
+
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        filter();
+      });
+      input.addEventListener('input', filter);
+      filter();
+    })();
+  </script>
+{% endblock %}

@@ -9,6 +9,7 @@ from openpyxl.utils.datetime import from_excel
 
 from shift_core.models import (
     PreviousShiftRecord,
+    ShiftRequest,
     SkillLevel,
     Staff,
     StaffSkill,
@@ -18,6 +19,7 @@ from shift_core.models import (
 
 PUBLIC_HOLIDAY_TOKENS = {"休", "公休", "公", "休日"}
 PAID_LEAVE_TOKENS = {"有休", "有給", "年休", "有"}
+UNAVAILABLE_TOKENS = {"不可", "勤務不可", "出勤不可", "×", "✕", "NG", "ＮＧ"}
 STANDBY_TOKENS = {"余剰", "応援", "社員"}
 BLANK_TOKENS = {"", "-", "ー", "－", "未入力"}
 
@@ -25,26 +27,42 @@ BLANK_TOKENS = {"", "-", "ー", "－", "未入力"}
 def import_master_workbook(file_obj) -> dict[str, int]:
     workbook = load_workbook(file_obj, data_only=True)
     _ensure_default_skill_levels()
+    level_count = _import_skill_levels(workbook)
     work_count = _import_works(workbook)
     staff_count = _import_staff_and_skills(workbook)
     previous_count = _import_previous_records(workbook)
-    return {"staff": staff_count, "works": work_count, "previous": previous_count}
+    request_count = _import_shift_requests(workbook)
+    return {
+        "staff": staff_count,
+        "works": work_count,
+        "levels": level_count,
+        "previous": previous_count,
+        "requests": request_count,
+    }
 
 
 def build_template_workbook(sample: bool = False) -> Workbook:
     workbook = Workbook()
-    staff_sheet = workbook.active
-    staff_sheet.title = "スタッフ"
-    staff_sheet.append(["社員番号", "氏名", "公休数", "その他"])
+    skill_sheet = workbook.active
+    skill_sheet.title = "スキル表"
 
-    works_sheet = workbook.create_sheet("業務")
+    works_sheet = workbook.create_sheet("業務マスタ")
     works_sheet.append(["業務名", "必要人数", "有効"])
 
-    skills_sheet = workbook.create_sheet("スキル")
-    skills_sheet.append(["社員番号", "氏名"])
+    levels_sheet = workbook.create_sheet("スキル区分")
+    levels_sheet.append(["記号", "意味", "優先度", "配置可", "指導可能", "研修中"])
+    for row in (
+        ["◎", "指導可能", 1, "可", "はい", "いいえ"],
+        ["○", "配置可", 3, "可", "いいえ", "いいえ"],
+        ["△", "研修中", 8, "可", "いいえ", "はい"],
+        ["×", "不可", 99, "不可", "いいえ", "いいえ"],
+    ):
+        levels_sheet.append(row)
 
-    previous_sheet = workbook.create_sheet("前月実績")
+    previous_sheet = workbook.create_sheet("先月シフト実績")
     previous_sheet.append(["社員番号", "氏名", "6/20", "6/21", "6/22", "6/23", "6/24", "6/25", "6/26", "6/27", "6/28", "6/29", "6/30"])
+    request_sheet = workbook.create_sheet("シフト提出")
+    request_sheet.append(["社員番号", "氏名", "7/1", "7/2", "7/3", "7/4", "7/5", "7/6", "7/7"])
 
     if sample:
         works = [
@@ -60,34 +78,26 @@ def build_template_workbook(sample: bool = False) -> Workbook:
         for name, required, active, color in works:
             works_sheet.append([name, required, active])
             works_sheet.cell(row=works_sheet.max_row, column=1).fill = PatternFill("solid", fgColor=color)
-        skills_sheet.delete_rows(1)
-        skills_sheet.append(["社員番号", "氏名", *[item[0] for item in works]])
-        notes = [
-            "単休不可",
-            "ベース2勤1休;3勤以上不可",
-            "ベース3勤1休;5勤以上不可",
-            "ベース4勤1休",
-            "E連続不可",
-            "ベース3勤1休;可能な限り4勤不可",
-            "ベース2勤1休;4勤以上不可",
-            "AとB交互",
-        ]
+        skill_sheet.append(["社員番号", "氏名", "公休数", *[item[0] for item in works]])
         symbols = ["◎", "○", "○", "△", "○", "×", "○", "○"]
         previous_values = ["A", "B", "C", "公休", "D", "E", "余剰", "公休", "F", "G", "H"]
         for index in range(1, 31):
             code = f"S{index:03}"
             name = f"スタッフ{index:02}"
-            staff_sheet.append([code, name, 6 + (1 if index % 5 == 0 else 0), notes[(index - 1) % len(notes)]])
             shift = (index - 1) % len(symbols)
             row_symbols = symbols[shift:] + symbols[:shift]
-            skills_sheet.append([code, name, *row_symbols])
+            skill_sheet.append([code, name, 6 + (1 if index % 5 == 0 else 0), *row_symbols])
             previous_shift = (index - 1) % len(previous_values)
             previous_sheet.append([code, name, *previous_values[previous_shift:], *previous_values[:previous_shift]])
+            request_values = ["", "公休", "", "有休", "", "不可", ""]
+            request_shift = (index - 1) % len(request_values)
+            request_sheet.append([code, name, *request_values[request_shift:], *request_values[:request_shift]])
     else:
-        staff_sheet.append(["S001", "山田 太郎", 8, "ベース3勤1休"])
         works_sheet.append(["A", 3, "有効"])
-        skills_sheet.append(["S001", "山田 太郎", "○"])
+        skill_sheet.append(["社員番号", "氏名", "公休数", "A"])
+        skill_sheet.append(["S001", "山田 太郎", 8, "○"])
         previous_sheet.append(["S001", "山田 太郎", "A", "公休", "A", "A", "余剰", "公休", "A", "A", "A", "公休", "A"])
+        request_sheet.append(["S001", "山田 太郎", "公休", "", "有休", "", "", "不可", ""])
 
     for sheet in workbook.worksheets:
         sheet.freeze_panes = "A2"
@@ -116,8 +126,31 @@ def _ensure_default_skill_levels() -> None:
         )
 
 
+def _import_skill_levels(workbook) -> int:
+    sheet = _sheet(workbook, "スキル区分")
+    if not sheet:
+        return 0
+    count = 0
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        symbol = _text(row[0] if len(row) > 0 else "")
+        if not symbol:
+            continue
+        SkillLevel.objects.update_or_create(
+            symbol=symbol,
+            defaults={
+                "label": _text(row[1] if len(row) > 1 else ""),
+                "priority": max(1, _int(row[2] if len(row) > 2 else 5, 5)),
+                "assignable": _yes(row[3] if len(row) > 3 else True),
+                "instructor": _yes(row[4] if len(row) > 4 else False),
+                "trainee": _yes(row[5] if len(row) > 5 else False),
+            },
+        )
+        count += 1
+    return count
+
+
 def _import_works(workbook) -> int:
-    sheet = workbook["業務"] if "業務" in workbook.sheetnames else None
+    sheet = _sheet(workbook, "業務マスタ", "業務")
     if not sheet:
         return 0
     count = 0
@@ -140,13 +173,15 @@ def _import_works(workbook) -> int:
 
 
 def _import_staff_and_skills(workbook) -> int:
-    staff_sheet = workbook["スタッフ"] if "スタッフ" in workbook.sheetnames else None
-    skills_sheet = workbook["スキル"] if "スキル" in workbook.sheetnames else None
-    if not staff_sheet:
+    skill_sheet = _sheet(workbook, "スキル表")
+    staff_sheet = _sheet(workbook, "スタッフ")
+    separate_skills_sheet = _sheet(workbook, "スキル")
+    if not skill_sheet and not staff_sheet:
         return 0
 
     count = 0
-    for row in staff_sheet.iter_rows(min_row=2, values_only=True):
+    source_sheet = skill_sheet or staff_sheet
+    for row in source_sheet.iter_rows(min_row=2, values_only=True):
         code = _text(row[0] if len(row) > 0 else "")
         name = _text(row[1] if len(row) > 1 else "")
         if not code or not name:
@@ -156,14 +191,16 @@ def _import_staff_and_skills(workbook) -> int:
             defaults={
                 "name": name,
                 "public_holiday_count": max(0, _int(row[2] if len(row) > 2 else 8, 8)),
-                "note": _text(row[3] if len(row) > 3 else ""),
+                "note": "",
                 "is_active": True,
             },
         )
         count += 1
 
+    skills_sheet = skill_sheet or separate_skills_sheet
     if skills_sheet:
-        work_names = [_text(cell.value) for cell in skills_sheet[1][2:]]
+        start_col = 3 if skill_sheet else 2
+        work_names = [_text(cell.value) for cell in skills_sheet[1][start_col:]]
         work_map = {work.name: work for work in WorkType.objects.all()}
         level_map = {level.symbol: level for level in SkillLevel.objects.all()}
         for row in skills_sheet.iter_rows(min_row=2, values_only=True):
@@ -171,7 +208,7 @@ def _import_staff_and_skills(workbook) -> int:
             staff = Staff.objects.filter(employee_number=code).first()
             if not staff:
                 continue
-            for offset, work_name in enumerate(work_names, start=2):
+            for offset, work_name in enumerate(work_names, start=start_col):
                 work = work_map.get(work_name)
                 symbol = _text(row[offset] if len(row) > offset else "")
                 level = level_map.get(symbol)
@@ -185,7 +222,7 @@ def _import_staff_and_skills(workbook) -> int:
 
 
 def _import_previous_records(workbook) -> int:
-    sheet = workbook["前月実績"] if "前月実績" in workbook.sheetnames else None
+    sheet = _sheet(workbook, "先月シフト実績", "前月実績")
     if not sheet:
         return 0
     headers = [cell.value for cell in sheet[1]]
@@ -208,6 +245,47 @@ def _import_previous_records(workbook) -> int:
             )
             count += 1
     return count
+
+
+def _import_shift_requests(workbook) -> int:
+    sheet = _sheet(workbook, "シフト提出", "シフト希望", "公休申請")
+    if not sheet:
+        return 0
+    headers = [cell.value for cell in sheet[1]]
+    count = 0
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        staff = Staff.objects.filter(employee_number=_text(row[0] if row else "")).first()
+        if not staff:
+            continue
+        for index, header in enumerate(headers[2:], start=2):
+            day = _parse_day(header)
+            if not day:
+                continue
+            raw = _text(row[index] if len(row) > index else "")
+            kind = _classify_request_value(raw)
+            if not kind:
+                ShiftRequest.objects.filter(staff=staff, day=day).delete()
+                continue
+            ShiftRequest.objects.update_or_create(
+                staff=staff,
+                day=day,
+                defaults={"kind": kind, "raw_value": raw},
+            )
+            count += 1
+    return count
+
+
+def _classify_request_value(value: str):
+    compact = value.replace(" ", "").replace("　", "")
+    if compact in BLANK_TOKENS:
+        return None
+    if compact in PUBLIC_HOLIDAY_TOKENS:
+        return ShiftRequest.Kind.PUBLIC_HOLIDAY
+    if compact in PAID_LEAVE_TOKENS:
+        return ShiftRequest.Kind.PAID_LEAVE
+    if compact in UNAVAILABLE_TOKENS:
+        return ShiftRequest.Kind.UNAVAILABLE
+    return None
 
 
 def _classify_shift_value(value: str, work_map: dict[str, WorkType]):
@@ -265,6 +343,17 @@ def _cell_color(cell) -> str:
 
 def _active(value) -> bool:
     return _text(value) not in {"無効", "停止", "0", "false", "False"}
+
+
+def _yes(value) -> bool:
+    return _text(value).lower() not in {"", "不可", "いいえ", "no", "false", "0"}
+
+
+def _sheet(workbook, *names):
+    for name in names:
+        if name in workbook.sheetnames:
+            return workbook[name]
+    return None
 
 
 def _int(value, default: int) -> int:

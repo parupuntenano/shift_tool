@@ -4,7 +4,11 @@
 
 {% block content %}
   <section class="card login-card">
-    <h1>管理者ログイン</h1>
+    <div class="login-brand">
+      <span>✓</span>
+      <h1>Crift</h1>
+      <p>管理者ログイン</p>
+    </div>
     <form method="post">
       {% csrf_token %}
       {{ form.as_p }}

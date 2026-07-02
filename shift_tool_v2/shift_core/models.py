@@ -84,6 +84,24 @@ class PreviousShiftRecord(models.Model):
         ]
 
 
+class ShiftRequest(models.Model):
+    class Kind(models.TextChoices):
+        PUBLIC_HOLIDAY = "public_holiday", "公休希望"
+        PAID_LEAVE = "paid_leave", "有休希望"
+        UNAVAILABLE = "unavailable", "勤務不可"
+
+    staff = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name="shift_requests")
+    day = models.DateField("日付")
+    kind = models.CharField("希望", max_length=20, choices=Kind.choices)
+    raw_value = models.CharField("取込値", max_length=100, blank=True)
+
+    class Meta:
+        ordering = ["day", "staff__employee_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["staff", "day"], name="unique_shift_request_v2")
+        ]
+
+
 class ShiftPeriod(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "下書き"

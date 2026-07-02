@@ -3,23 +3,44 @@
 {% block title %}ダッシュボード{% endblock %}
 
 {% block content %}
-  <section class="hero">
+  <section class="page-header">
     <div>
+      <span class="kicker">Crift</span>
       <h1>30人規模向け 月間シフト作成</h1>
       <p>Excel情報を読み込んで、管理者が手直しできる8割完成のシフト表を作ります。</p>
     </div>
-    <a class="button" href="{% url 'import_data' %}">Excelを取り込む</a>
+    <div class="page-actions">
+      <a class="button primary-link" href="{% url 'import_data' %}">Excelを取り込む</a>
+    </div>
   </section>
 
-  <section class="grid two">
-    <div class="card">
-      <h2>登録状況</h2>
-      <dl class="stats">
-        <div><dt>スタッフ</dt><dd>{{ staff_count }}人</dd></div>
-        <div><dt>業務</dt><dd>{{ work_count }}件</dd></div>
-      </dl>
+  <section class="metric-grid">
+    <div class="metric-card">
+      <div class="metric-icon purple">人</div>
+      <div>
+        <strong>{{ staff_count }}</strong>
+        <small>登録スタッフ</small>
+      </div>
     </div>
-    <div class="card">
+    <div class="metric-card">
+      <div class="metric-icon blue">業</div>
+      <div>
+        <strong>{{ work_count }}</strong>
+        <small>登録業務</small>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-icon green">希</div>
+      <div>
+        <strong>{{ request_count }}</strong>
+        <small>シフト提出</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="dashboard-grid">
+    <div class="panel generate-panel">
+      <div class="metric-icon purple">📅</div>
       <h2>シフト作成</h2>
       <form method="post" action="{% url 'generate_shift' %}" class="inline-form">
         {% csrf_token %}
@@ -28,26 +49,31 @@
       </form>
       <p class="hint">必要人数を優先し、不足・公休差分は警告として表示します。</p>
     </div>
-  </section>
 
-  <section class="card">
-    <h2>作成済みシフト</h2>
-    <table>
-      <thead>
-        <tr><th>対象月</th><th>状態</th><th>更新日時</th><th></th></tr>
-      </thead>
-      <tbody>
-        {% for period in periods %}
-          <tr>
-            <td>{{ period.month|date:"Y年n月" }}</td>
-            <td>{{ period.get_status_display }}</td>
-            <td>{{ period.updated_at|date:"Y/m/d H:i" }}</td>
-            <td><a class="button small" href="{% url 'shift_detail' period.pk %}">開く</a></td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="4">まだシフトはありません。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>作成済みシフト</h2>
+          <p>編集・出力する月を選択します。</p>
+        </div>
+      </div>
+      <table class="table">
+        <thead>
+          <tr><th>対象月</th><th>状態</th><th>更新日時</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for period in periods %}
+            <tr>
+              <td>{{ period.month|date:"Y年n月" }}</td>
+              <td><span class="status draft">{{ period.get_status_display }}</span></td>
+              <td>{{ period.updated_at|date:"Y/m/d H:i" }}</td>
+              <td><a class="button small" href="{% url 'shift_detail' period.pk %}">開く</a></td>
+            </tr>
+          {% empty %}
+            <tr><td class="empty" colspan="4">まだシフトはありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% endblock %}

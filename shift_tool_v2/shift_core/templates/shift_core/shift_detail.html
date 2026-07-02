@@ -3,69 +3,211 @@
 {% block title %}{{ period.month|date:"Y年n月" }}シフト{% endblock %}
 
 {% block content %}
-  <section class="hero compact">
+  <header class="page-header">
     <div>
+      <span class="kicker">Crift</span>
       <h1>{{ period.month|date:"Y年n月" }} シフト表</h1>
-      <p>必要人数不足・公休数差分を確認しながら、プルダウンで手直しできます。</p>
+      <p>状態：{{ period.get_status_display }} · 警告 {{ warnings|length }}件</p>
+      <p class="draft-edit-note">各セルのプルダウンから編集できます。変更後は保存してください。</p>
     </div>
-    <div class="actions">
+    <div class="page-actions">
+      <span class="status large">{{ period.get_status_display }}</span>
       <a class="button" href="{% url 'download_shift_excel' period.pk %}">Excel</a>
       <a class="button" href="{% url 'download_shift_csv' period.pk %}">CSV</a>
     </div>
-  </section>
+  </header>
 
-  {% if warnings %}
-    <section class="card warning-card">
-      <h2>警告</h2>
-      <ul>
-        {% for warning in warnings %}
-          <li>{{ warning.message }}</li>
-        {% endfor %}
-      </ul>
-    </section>
-  {% endif %}
-
-  <form method="post" action="{% url 'save_shift' period.pk %}">
+  <form method="post" action="{% url 'save_shift' period.pk %}" id="draft-shift-form" class="draft-shift-form">
     {% csrf_token %}
-    <section class="table-wrap">
-      <table class="shift-table">
-        <thead>
-          <tr>
-            <th class="sticky-col">社員番号</th>
-            <th class="sticky-col second">氏名</th>
-            {% for day in days %}
-              <th>{{ day.day }}<small>{{ day|date:"D" }}</small></th>
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
+    <div class="draft-edit-toolbar panel">
+      <div>
+        <strong>シフト編集モード</strong>
+        <small>業務・公休・有休・余剰を直接変更できます。右側と下部の集計で崩れを確認してください。</small>
+      </div>
+      <button type="submit" class="primary">シフトを保存</button>
+    </div>
+
+    <section class="panel shift-board">
+      <div class="table-responsive" id="shift-table-scroll">
+        <table class="table monthly-table">
+          <thead>
             <tr>
-              <th class="sticky-col">{{ row.staff.employee_number }}</th>
-              <th class="sticky-col second">{{ row.staff.name }}</th>
-              {% for cell in row.cells %}
-                <td>
-                  {% if cell.assignment %}
-                    <select name="assignment_{{ cell.assignment.id }}">
-                      {% for value,label in status_options %}
-                        <option value="{{ value }}" {% if cell.assignment.status == value %}selected{% endif %}>{{ label }}</option>
-                      {% endfor %}
-                      {% for work in works %}
-                        <option value="{{ work.id }}" {% if cell.assignment.work_type_id == work.id %}selected{% endif %}>
-                          {{ work.name }}
-                        </option>
-                      {% endfor %}
-                    </select>
-                  {% endif %}
-                </td>
+              <th class="sticky-col">氏名</th>
+              {% for day in previous_days %}
+                <th class="previous-week {% if day.is_non_workday %}non-workday{% endif %} {% if day.is_saturday %}saturday{% endif %}">
+                  <span class="day-label table-day-label">
+                    <small>前月</small>
+                    <strong>{{ day.number }}</strong>
+                    <span class="day-meta">
+                      {% if day.holiday %}
+                        <small class="holiday-name">{{ day.holiday }}</small>
+                      {% endif %}
+                      <small>{{ day.weekday }}</small>
+                    </span>
+                  </span>
+                </th>
+              {% endfor %}
+              {% for day in days %}
+                <th class="{% if day.is_non_workday %}non-workday{% endif %} {% if day.is_saturday %}saturday{% endif %}">
+                  <span class="day-label table-day-label">
+                    <strong>{{ day.number }}</strong>
+                    <span class="day-meta">
+                      {% if day.holiday %}
+                        <small class="holiday-name">{{ day.holiday }}</small>
+                      {% endif %}
+                      <small>{{ day.weekday }}</small>
+                    </span>
+                  </span>
+                </th>
+              {% endfor %}
+              <th class="summary-col">出勤</th>
+              <th class="summary-col">余剰</th>
+              <th class="summary-col">公休</th>
+              <th class="summary-col">有給</th>
+              <th class="summary-col">合計</th>
+              {% for work in works %}
+                <th class="summary-col work-summary-col">
+                  {{ work.name }}
+                  <small>必要{{ work.required_staff_per_day }}</small>
+                </th>
               {% endfor %}
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td class="sticky-col staff-name-sticky">
+                  <span class="staff-inline-name">
+                    <small>{{ row.staff.employee_number }}</small>
+                    <strong>{{ row.staff.name }}</strong>
+                  </span>
+                </td>
+                {% for cell in row.previous_cells %}
+                  <td class="previous-week readonly-previous-cell {{ cell.cell_class }} {% if cell.day.is_non_workday %}non-workday{% endif %} {% if cell.day.is_saturday %}saturday{% endif %}"
+                      {% if cell.work and cell.work.color %}style="--work-color: {{ cell.work.color }};"{% endif %}>
+                    {% if cell.work %}
+                      <span class="work-chip" {% if cell.work.color %}style="--work-color: {{ cell.work.color }};"{% endif %}>
+                        {{ cell.label }}
+                      </span>
+                    {% elif cell.status == 'paid_leave' %}
+                      <span class="rest-chip paid-leave">{{ cell.label }}</span>
+                    {% elif cell.status == 'public_holiday' %}
+                      <span class="rest-chip inserted-public-holiday">{{ cell.label }}</span>
+                    {% elif cell.status == 'standby' %}
+                      <span class="rest-chip assignment-pending">{{ cell.label }}</span>
+                    {% else %}
+                      <span class="previous-blank">—</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+                {% for cell in row.cells %}
+                  <td class="{{ cell.cell_class }} {% if cell.day.is_non_workday %}non-workday{% endif %} {% if cell.day.is_saturday %}saturday{% endif %}"
+                      {% if cell.work and cell.work.color %}style="--work-color: {{ cell.work.color }};"{% endif %}>
+                    {% if cell.assignment %}
+                      <select name="{{ cell.field_name }}" class="draft-shift-select" aria-label="{{ row.staff.name }} {{ cell.day.date|date:'n/j' }} の勤務">
+                        {% for value,label in status_options %}
+                          <option value="{{ value }}" {% if cell.assignment.status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                        {% for work in works %}
+                          <option value="{{ work.id }}"
+                                  {% if work.color %}style="background-color: color-mix(in srgb, {{ work.color }} 18%, white); color: #1f2937;"{% endif %}
+                                  {% if cell.assignment.work_type_id == work.id %}selected{% endif %}>
+                            {{ work.name }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                      {% if cell.assignment.status == 'work' %}
+                        <span class="work-chip" {% if cell.work and cell.work.color %}style="--work-color: {{ cell.work.color }};"{% endif %}>
+                          {{ cell.label }}
+                        </span>
+                      {% else %}
+                        <span class="rest-chip {{ cell.rest_kind }}">{{ cell.rest_label }}</span>
+                      {% endif %}
+                      <small class="assignment-source-mark {{ cell.source_class }}">{{ cell.source_label }}</small>
+                      {% if cell.request_label %}
+                        <small class="request-badge {% if cell.request_conflict %}conflict{% endif %}">
+                          {{ cell.request_label }}
+                        </small>
+                      {% endif %}
+                      {% if cell.assignment_is_trainee %}
+                        <small class="training-badge trainee">研修</small>
+                      {% elif cell.assignment_is_instructor %}
+                        <small class="training-badge instructor">指導</small>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% endfor %}
+                <td class="summary-col assigned-count">{{ row.work_count }}</td>
+                <td class="summary-col standby-count">{{ row.standby_count }}</td>
+                <td class="summary-col rest-count {{ row.public_holiday_status }}">
+                  {{ row.public_holiday_count }}
+                  <small>設定{{ row.public_holiday_target }}</small>
+                  {% if row.public_holiday_status != 'ok' %}
+                    <small>警告：{{ row.public_holiday_status_label }}</small>
+                  {% endif %}
+                </td>
+                <td class="summary-col paid-leave-count">{{ row.paid_leave_count }}</td>
+                <td class="summary-col total-count {{ row.expected_total_status }}">{{ row.expected_total }}</td>
+                {% for item in row.work_summary %}
+                  <td class="summary-col work-summary-count">{{ item.count }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            {% for stat in daily_work_stats %}
+              <tr class="daily-work-stat-row">
+                <th class="sticky-col">
+                  <span class="work-chip" {% if stat.work.color %}style="--work-color: {{ stat.work.color }};"{% endif %}>
+                    {{ stat.work.name }}
+                    <small class="required-staff-inline">必要{{ stat.work.required_staff_per_day }}</small>
+                  </span>
+                </th>
+                {% for day in previous_days %}
+                  <td class="previous-week readonly-previous-cell">—</td>
+                {% endfor %}
+                {% for count in stat.counts %}
+                  <td>{{ count }}</td>
+                {% endfor %}
+                <td class="summary-col">{{ stat.total }}</td>
+                <td class="summary-col">—</td>
+                <td class="summary-col">—</td>
+                <td class="summary-col">—</td>
+                <td class="summary-col">—</td>
+                {% for work in works %}
+                  <td class="summary-col {% if work.id == stat.work.id %}work-summary-count{% endif %}">
+                    {% if work.id == stat.work.id %}{{ stat.total }}{% else %}—{% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tfoot>
+        </table>
+      </div>
     </section>
-    <div class="save-bar">
+
+    <div class="skill-save-bar">
+      <span>変更後は保存ボタンで反映されます。</span>
       <button class="primary" type="submit">シフトを保存</button>
     </div>
   </form>
+
+  {% if warnings %}
+    <section class="panel edit-support-panel">
+      <div class="support-header">
+        <div>
+          <h2>シフト調整サポート</h2>
+          <p>必要人数不足・公休数差分など、手直し時に見るべき警告です。</p>
+        </div>
+      </div>
+      <div class="support-grid">
+        {% for warning in warnings %}
+          <div class="support-item danger">
+            <strong>{{ warning.message }}</strong>
+            {% if warning.day %}<span>{{ warning.day|date:"n/j" }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
 {% endblock %}

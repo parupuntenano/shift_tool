@@ -4,26 +4,47 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Shift Tool V2{% endblock %}</title>
+  <title>{% block title %}Crift{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'shift_core/app.css' %}">
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="{% url 'dashboard' %}">Shift Tool V2</a>
-    <nav>
-      {% if user.is_authenticated %}
-        <a href="{% url 'dashboard' %}">ダッシュボード</a>
-        <a href="{% url 'import_data' %}">Excel取込</a>
-        <form method="post" action="{% url 'logout' %}">
-          {% csrf_token %}
-          <button type="submit">ログアウト</button>
-        </form>
-      {% endif %}
-    </nav>
-  </header>
-  <main class="container">
+  {% if user.is_authenticated %}
+    <aside class="sidebar">
+      <a class="logo" href="{% url 'dashboard' %}">
+        <span>✓</span>
+        Crift
+      </a>
+      <nav class="side-nav">
+        <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+           href="{% url 'dashboard' %}">▦ ダッシュボード</a>
+        <a class="{% if request.resolver_match.url_name == 'import_data' %}active{% endif %}"
+           href="{% url 'import_data' %}">⇧ Excel取込</a>
+        <a class="{% if request.resolver_match.url_name == 'staff_manage' or request.resolver_match.url_name == 'staff_edit' or request.resolver_match.url_name == 'staff_delete_all' %}active{% endif %}"
+           href="{% url 'staff_manage' %}">👥 スタッフ管理</a>
+        <a class="{% if request.resolver_match.url_name == 'work_manage' or request.resolver_match.url_name == 'work_edit' %}active{% endif %}"
+           href="{% url 'work_manage' %}">◷ 業務管理</a>
+        <a class="{% if request.resolver_match.url_name == 'skill_map' %}active{% endif %}"
+           href="{% url 'skill_map' %}">★ スキル管理</a>
+      </nav>
+      <div class="sidebar-user">
+        <span class="avatar">{{ user.username|slice:":1"|upper }}</span>
+        <div>
+          <strong>{{ user.get_full_name|default:user.username }}</strong>
+          <small>ローカル管理者</small>
+        </div>
+      </div>
+      <form method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button class="logout" type="submit">ログアウト</button>
+      </form>
+    </aside>
+  {% endif %}
+
+  <main class="{% if user.is_authenticated %}app-main{% else %}auth-main{% endif %}">
     {% for message in messages %}
-      <div class="message {{ message.tags }}">{{ message }}</div>
+      <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %}">
+        {{ message }}
+      </div>
     {% endfor %}
     {% block content %}{% endblock %}
   </main>

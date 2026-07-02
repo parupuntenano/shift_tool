@@ -1,0 +1,92 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}スタッフ管理{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">MASTER</span>
+      <h1>スタッフ管理</h1>
+      <p>社員番号、氏名、月公休数、有効状態を管理します。</p>
+    </div>
+    <div class="page-actions">
+      <a class="button danger-link" href="{% url 'staff_delete_all' %}">スタッフ情報を全削除</a>
+    </div>
+  </header>
+
+  <div class="content-grid">
+    <section class="panel">
+      <form method="get" class="search-keyword staff-search">
+        <input type="text" name="q" value="{{ query }}" placeholder="社員番号・氏名で検索">
+        <button class="button small" type="submit">検索</button>
+        {% if query %}
+          <a class="button small" href="{% url 'staff_manage' %}">リセット</a>
+        {% endif %}
+      </form>
+
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>社員番号</th>
+              <th>氏名</th>
+              <th>月公休数</th>
+              <th>状態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>{{ item.employee_number }}</td>
+                <td><strong>{{ item.name }}</strong></td>
+                <td>{{ item.public_holiday_count }}日</td>
+                <td>
+                  <span class="status {% if item.is_active %}submitted{% endif %}">
+                    {{ item.is_active|yesno:"有効,無効" }}
+                  </span>
+                </td>
+                <td class="actions">
+                  <a class="button small" href="{% url 'staff_edit' item.pk %}">編集</a>
+                  <form method="post" action="{% url 'staff_delete' item.pk %}" onsubmit="return confirm('このスタッフを削除します。よろしいですか？');">
+                    {% csrf_token %}
+                    <button class="button small danger-button" type="submit">削除</button>
+                  </form>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td class="empty" colspan="5">スタッフが未登録です。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="panel form-panel">
+      <h2>{% if editing_item %}スタッフ編集{% else %}スタッフ登録{% endif %}</h2>
+      <form method="post">
+        {% csrf_token %}
+        <p>
+          <label>社員番号</label>
+          <input type="text" name="employee_number" value="{{ editing_item.employee_number|default:'' }}" required>
+        </p>
+        <p>
+          <label>氏名</label>
+          <input type="text" name="name" value="{{ editing_item.name|default:'' }}" required>
+        </p>
+        <p>
+          <label>月公休数</label>
+          <input type="number" name="public_holiday_count" min="0" value="{{ editing_item.public_holiday_count|default:8 }}" required>
+        </p>
+        <label class="checkbox-row">
+          <input type="checkbox" name="is_active" {% if not editing_item or editing_item.is_active %}checked{% endif %}>
+          有効
+        </label>
+        <button class="primary" type="submit">{% if editing_item %}更新する{% else %}登録する{% endif %}</button>
+        {% if editing_item %}
+          <a class="button cancel-link" href="{% url 'staff_manage' %}">キャンセル</a>
+        {% endif %}
+      </form>
+    </aside>
+  </div>
+{% endblock %}

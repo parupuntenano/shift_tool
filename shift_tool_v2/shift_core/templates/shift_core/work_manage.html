@@ -1,0 +1,160 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}業務管理{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <span class="kicker">MASTER</span>
+      <h1>業務管理</h1>
+      <p>業務名、必要人数、業務色を管理します。</p>
+    </div>
+  </header>
+
+  <div class="content-grid">
+    <section class="panel">
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>表示順</th>
+              <th>業務名</th>
+              <th>色</th>
+              <th>必要人数/日</th>
+              <th>状態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>{{ item.display_order }}</td>
+                <td><strong>{{ item.name }}</strong></td>
+                <td>
+                  {% if item.color %}
+                    <span class="work-color-preview" style="--work-color: {{ item.color }};">{{ item.color }}</span>
+                  {% else %}
+                    <span class="muted">標準</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.required_staff_per_day }}名</td>
+                <td><span class="status {% if item.active %}submitted{% endif %}">{{ item.active|yesno:"有効,無効" }}</span></td>
+                <td class="actions">
+                  <a class="button small" href="{% url 'work_edit' item.pk %}">編集</a>
+                  {% if item.active %}
+                    <form method="post" action="{% url 'work_delete' item.pk %}">
+                      {% csrf_token %}
+                      <button class="button small" type="submit">無効</button>
+                    </form>
+                  {% endif %}
+                  <button
+                    class="button small danger-link js-work-delete-open"
+                    type="button"
+                    data-delete-action="{% url 'work_destroy' item.pk %}"
+                    data-work-name="{{ item.name }}"
+                    data-skill-count="{{ item.skills.count }}"
+                    data-assignment-count="{{ item.shiftassignment_set.count }}"
+                    data-previous-count="{{ item.previousshiftrecord_set.count }}"
+                  >
+                    削除
+                  </button>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td class="empty" colspan="6">業務が未登録です。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="panel form-panel">
+      <h2>{% if editing_item %}業務編集{% else %}業務登録{% endif %}</h2>
+      <form method="post">
+        {% csrf_token %}
+        <p>
+          <label>業務名</label>
+          <input type="text" name="name" value="{{ editing_item.name|default:'' }}" required>
+        </p>
+        <p>
+          <label>必要人数/日</label>
+          <input type="number" name="required_staff_per_day" min="1" value="{{ editing_item.required_staff_per_day|default:1 }}" required>
+        </p>
+        <p>
+          <label>色</label>
+          <input type="color" name="color" value="{{ editing_item.color|default:'#6c4cf1' }}">
+        </p>
+        <p>
+          <label>表示順</label>
+          <input type="number" name="display_order" min="0" value="{{ editing_item.display_order|default:0 }}">
+        </p>
+        <label class="checkbox-row">
+          <input type="checkbox" name="active" {% if not editing_item or editing_item.active %}checked{% endif %}>
+          有効
+        </label>
+        <button class="primary" type="submit">{% if editing_item %}更新する{% else %}登録する{% endif %}</button>
+        {% if editing_item %}
+          <a class="button cancel-link" href="{% url 'work_manage' %}">キャンセル</a>
+        {% endif %}
+      </form>
+    </aside>
+  </div>
+
+  <div class="modal-backdrop" id="work-delete-modal" aria-hidden="true">
+    <section class="modal-card danger-modal" role="dialog" aria-modal="true" aria-labelledby="work-delete-title">
+      <span class="kicker">DELETE</span>
+      <h2 id="work-delete-title">業務を削除</h2>
+      <p>
+        業務「<strong id="work-delete-name"></strong>」を削除します。
+      </p>
+      <ul class="delete-impact-list">
+        <li>スキル：<span id="work-delete-skill-count">0</span>件</li>
+        <li>作成済みシフト：<span id="work-delete-assignment-count">0</span>件</li>
+        <li>前月実績：<span id="work-delete-previous-count">0</span>件</li>
+      </ul>
+      <p class="danger-text">この操作は取り消せません。</p>
+      <form method="post" id="work-delete-form" class="inline-form">
+        {% csrf_token %}
+        <button class="primary danger-submit" type="submit">削除する</button>
+        <button class="button js-work-delete-close" type="button">キャンセル</button>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const modal = document.getElementById("work-delete-modal");
+      const form = document.getElementById("work-delete-form");
+      const name = document.getElementById("work-delete-name");
+      const skillCount = document.getElementById("work-delete-skill-count");
+      const assignmentCount = document.getElementById("work-delete-assignment-count");
+      const previousCount = document.getElementById("work-delete-previous-count");
+
+      document.querySelectorAll(".js-work-delete-open").forEach((button) => {
+        button.addEventListener("click", () => {
+          form.action = button.dataset.deleteAction;
+          name.textContent = button.dataset.workName;
+          skillCount.textContent = button.dataset.skillCount;
+          assignmentCount.textContent = button.dataset.assignmentCount;
+          previousCount.textContent = button.dataset.previousCount;
+          modal.classList.add("is-open");
+          modal.setAttribute("aria-hidden", "false");
+        });
+      });
+
+      document.querySelectorAll(".js-work-delete-close").forEach((button) => {
+        button.addEventListener("click", () => {
+          modal.classList.remove("is-open");
+          modal.setAttribute("aria-hidden", "true");
+        });
+      });
+
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          modal.classList.remove("is-open");
+          modal.setAttribute("aria-hidden", "true");
+        }
+      });
+    })();
+  </script>
+{% endblock %}

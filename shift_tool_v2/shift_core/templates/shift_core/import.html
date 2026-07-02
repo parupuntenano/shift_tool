@@ -3,13 +3,20 @@
 {% block title %}Excel取込{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <h1>Excel取込</h1>
-    <p>V2では「スタッフ」「業務」「スキル」「前月実績」の4シートを読み込みます。</p>
+  <section class="page-header">
+    <div>
+      <span class="kicker">EXCEL IMPORT</span>
+      <h1>Excel取込</h1>
+      <p>「スキル表」「業務マスタ」「スキル区分」「先月シフト実績」「シフト提出」を読み込みます。スキル表の備考欄は使いません。</p>
+    </div>
     <div class="actions">
       <a class="button" href="{% url 'download_template' %}">テンプレートをダウンロード</a>
       <a class="button" href="{% url 'download_sample' %}">30人サンプルをダウンロード</a>
     </div>
+  </section>
+
+  <section class="panel upload-panel">
+    <div class="upload-icon">⇧</div>
     <form method="post" enctype="multipart/form-data" class="upload-form">
       {% csrf_token %}
       <input type="file" name="file" accept=".xlsx" required>
@@ -17,12 +24,14 @@
     </form>
   </section>
 
-  <section class="card">
+  <section class="panel">
     <h2>読み込みルール</h2>
     <ul>
-      <li>業務セルの塗りつぶし色を、シフト表の業務色として使います。</li>
+      <li>スキル表は「社員番号・氏名・公休数・業務別スキル」の順で読みます。備考列は不要です。</li>
+      <li>業務マスタの業務名セルの塗りつぶし色を、シフト表の業務色として使います。</li>
       <li>スキル記号は ◎=指導可能、○=配置可、△=研修中、×=不可 を初期値として扱います。</li>
-      <li>前月実績は、業務名・公休・有休・余剰を読み取ります。</li>
+      <li>先月シフト実績は、業務名・公休・有休・余剰を読み取ります。</li>
+      <li>シフト提出は、公休・有休・勤務不可を読み取ります。生成時は有休/勤務不可を配置対象から外し、公休希望はできるだけ避けます。</li>
       <li>社員番号が一致した行だけ保存します。</li>
     </ul>
   </section>
