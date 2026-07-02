@@ -77,10 +77,12 @@ def build_template_workbook(sample: bool = False) -> Workbook:
         for index in range(1, 31):
             code = f"S{index:03}"
             name = f"スタッフ{index:02}"
-            staff_sheet.append([code, name, 8 + (index % 2), notes[(index - 1) % len(notes)]])
-            row_symbols = symbols[-((index - 1) % len(symbols)):] + symbols[:-((index - 1) % len(symbols)) or None]
+            staff_sheet.append([code, name, 6 + (1 if index % 5 == 0 else 0), notes[(index - 1) % len(notes)]])
+            shift = (index - 1) % len(symbols)
+            row_symbols = symbols[shift:] + symbols[:shift]
             skills_sheet.append([code, name, *row_symbols])
-            previous_sheet.append([code, name, *previous_values[(index - 1) % len(previous_values):], *previous_values[: (index - 1) % len(previous_values)]][:13])
+            previous_shift = (index - 1) % len(previous_values)
+            previous_sheet.append([code, name, *previous_values[previous_shift:], *previous_values[:previous_shift]])
     else:
         staff_sheet.append(["S001", "山田 太郎", 8, "ベース3勤1休"])
         works_sheet.append(["A", 3, "有効"])
@@ -247,7 +249,7 @@ def _parse_day(value) -> date | None:
     for fmt in ("%Y/%m/%d", "%Y-%m-%d", "%m/%d", "%m月%d日"):
         try:
             parsed = datetime.strptime(text, fmt)
-            year = 2026 if "%Y" not in fmt else parsed.year
+            year = date.today().year if "%Y" not in fmt else parsed.year
             return date(year, parsed.month, parsed.day)
         except ValueError:
             continue

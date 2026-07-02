@@ -1,0 +1,29 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}Excel取込{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <h1>Excel取込</h1>
+    <p>V2では「スタッフ」「業務」「スキル」「前月実績」の4シートを読み込みます。</p>
+    <div class="actions">
+      <a class="button" href="{% url 'download_template' %}">テンプレートをダウンロード</a>
+      <a class="button" href="{% url 'download_sample' %}">30人サンプルをダウンロード</a>
+    </div>
+    <form method="post" enctype="multipart/form-data" class="upload-form">
+      {% csrf_token %}
+      <input type="file" name="file" accept=".xlsx" required>
+      <button class="primary" type="submit">取り込む</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>読み込みルール</h2>
+    <ul>
+      <li>業務セルの塗りつぶし色を、シフト表の業務色として使います。</li>
+      <li>スキル記号は ◎=指導可能、○=配置可、△=研修中、×=不可 を初期値として扱います。</li>
+      <li>前月実績は、業務名・公休・有休・余剰を読み取ります。</li>
+      <li>社員番号が一致した行だけ保存します。</li>
+    </ul>
+  </section>
+{% endblock %}

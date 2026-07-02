@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from django.db import transaction
 
 from shift_core.models import (
+    PreviousShiftRecord,
     ShiftAssignment,
     ShiftPeriod,
     ShiftWarning,
@@ -32,6 +33,7 @@ def generate_monthly_shift(month: date) -> ShiftPeriod:
         (skill.staff_id, skill.work_type_id): skill
         for skill in StaffSkill.objects.select_related("level", "staff", "work_type")
     }
+    previous_work_streaks = _previous_work_streaks(staff_list, month)
 
     with transaction.atomic():
         period, _created = ShiftPeriod.objects.update_or_create(
@@ -55,6 +57,7 @@ def generate_monthly_shift(month: date) -> ShiftPeriod:
                 staff_list,
                 public_holiday_counts,
                 assigned_days,
+                previous_work_streaks,
             )
 
             for work in works:
@@ -93,6 +96,13 @@ def generate_monthly_shift(month: date) -> ShiftPeriod:
                     total_work_counts[candidate.staff.id] += 1
                     work_counts[(candidate.staff.id, work.id)] += 1
 
+            final_rest_staff_ids = _final_public_holiday_staff_ids(
+                current,
+                staff_list,
+                assigned_days,
+                public_holiday_counts,
+            )
+
             _assign_trainees(
                 period,
                 current,
@@ -100,7 +110,7 @@ def generate_monthly_shift(month: date) -> ShiftPeriod:
                 works,
                 skill_map,
                 assigned_days,
-                rest_staff_ids,
+                final_rest_staff_ids,
                 daily_work_staff,
                 total_work_counts,
                 work_counts,
@@ -110,7 +120,7 @@ def generate_monthly_shift(month: date) -> ShiftPeriod:
             for staff in staff_list:
                 if (staff.id, current) in assigned_days:
                     continue
-                if staff.id in rest_staff_ids:
+                if staff.id in final_rest_staff_ids:
                     status = ShiftAssignment.Status.PUBLIC_HOLIDAY
                     public_holiday_counts[staff.id] += 1
                 else:
@@ -130,18 +140,39 @@ def _days_in_month(month: date):
         yield month.replace(day=day)
 
 
-def _choose_public_holidays(current, staff_list, public_holiday_counts, assigned_days):
-    target_daily_rest = max(1, round(len(staff_list) * 0.2))
+def _choose_public_holidays(current, staff_list, public_holiday_counts, assigned_days, previous_work_streaks):
     week_start = current - timedelta(days=(current.weekday() + 1) % 7)
     candidates = sorted(
         staff_list,
         key=lambda staff: (
-            _worked_in_week(staff.id, week_start, current, assigned_days) < 5,
+            (
+                previous_work_streaks[staff.id]
+                + _worked_in_week(staff.id, week_start, current, assigned_days)
+            )
+            < 5,
             public_holiday_counts[staff.id] - staff.public_holiday_count,
             staff.employee_number,
         ),
     )
-    return {staff.id for staff in candidates[:target_daily_rest]}
+    return {staff.id for staff in candidates[:_target_daily_rest_count(staff_list)]}
+
+
+def _final_public_holiday_staff_ids(current, staff_list, assigned_days, public_holiday_counts):
+    unassigned_staff = [
+        staff for staff in staff_list if (staff.id, current) not in assigned_days
+    ]
+    candidates = sorted(
+        unassigned_staff,
+        key=lambda staff: (
+            public_holiday_counts[staff.id] - staff.public_holiday_count,
+            staff.employee_number,
+        ),
+    )
+    return {staff.id for staff in candidates[:_target_daily_rest_count(staff_list)]}
+
+
+def _target_daily_rest_count(staff_list):
+    return max(1, round(len(staff_list) * 0.2))
 
 
 def _best_candidate(
@@ -236,6 +267,7 @@ def _best_trainee(current, work, staff_list, skill_map, assigned_days, rest_staf
             not skill
             or not skill.level.assignable
             or not skill.level.trainee
+            or staff.id in rest_staff_ids
             or (staff.id, current) in assigned_days
         ):
             continue
@@ -251,6 +283,26 @@ def _best_trainee(current, work, staff_list, skill_map, assigned_days, rest_staf
 
 def _worked_in_week(staff_id, week_start, current, assigned_days):
     return sum(1 for _staff_id, day in assigned_days if _staff_id == staff_id and week_start <= day < current)
+
+
+def _previous_work_streaks(staff_list, month):
+    result = Counter()
+    previous_by_staff = defaultdict(list)
+    for record in PreviousShiftRecord.objects.filter(day__lt=month).order_by("staff_id", "-day"):
+        previous_by_staff[record.staff_id].append(record)
+    for staff in staff_list:
+        expected_day = month - timedelta(days=1)
+        for record in previous_by_staff[staff.id]:
+            if record.day != expected_day:
+                break
+            if record.status not in {
+                PreviousShiftRecord.Status.WORK,
+                PreviousShiftRecord.Status.STANDBY,
+            }:
+                break
+            result[staff.id] += 1
+            expected_day -= timedelta(days=1)
+    return result
 
 
 def _add_balance_warnings(period, staff_list):

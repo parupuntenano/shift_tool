@@ -1,0 +1,14 @@
+{% extends "shift_core/base.html" %}
+
+{% block title %}ログイン{% endblock %}
+
+{% block content %}
+  <section class="card login-card">
+    <h1>管理者ログイン</h1>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="primary" type="submit">ログイン</button>
+    </form>
+  </section>
+{% endblock %}
